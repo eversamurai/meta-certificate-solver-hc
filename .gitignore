@@ -8,6 +8,7 @@ data/
 # Never commit keys or certs
 lab/certs/
 lab/webroot/
+lab/conf.d/
 *.pem
 *.key
 *.crt

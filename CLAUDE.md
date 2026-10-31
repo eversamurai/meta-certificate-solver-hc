@@ -109,7 +109,7 @@ src/main/resources/
 lab/
   docker-compose.yml             step-ca (ACME) + nginx: demo.lab (lab) :8443, shop.prod (prod) :8444, http :8080, CA :9000
   init.sh                        bring up lab, export root CA, issue healthy 24h cert
-  break.sh expiring|untrusted|weak   break the site for the demo
+  break.sh expiring|untrusted|weak|reload   break the site for the demo (reload: config that fails nginx -t)
   nginx/nginx.conf, certs/, webroot/
 ```
 
@@ -165,8 +165,9 @@ Not for the video: approval buttons, history charts, theme toggles.
 Three cases on one screen, ~90 seconds:
 1. `break.sh untrusted` → agent diagnoses rogue issuer, explains, renews via ACME, verifies → **Fixed**.
 2. A `prod` target with a warning → agent diagnoses, proposes renewal, policy denies → **Needs approval**.
-3. Point `certagent.acme.directory-url` at a bad URL, `break.sh weak` → renewal fails → automatic rollback,
-   site still up → **Rolled back**.
+3. `break.sh weak` then `break.sh reload` (leaves a config snippet that fails `nginx -t`) → agent renews via ACME,
+   install succeeds, reload is refused → automatic rollback, nginx still serves the old cert → **Rolled back**.
+   (A bad ACME URL fails before anything is installed, so it shows **Failed safely**, not a rollback.)
 
 Then 40s on architecture + "runs on Glimmer locally, nothing leaves the network," 20s problem framing up
 front. Record the agent run once; narrate over it; never re-run live in the video.

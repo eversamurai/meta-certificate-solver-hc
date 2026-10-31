@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Break demo.lab for the demo. Usage: ./lab/break.sh expiring|untrusted|weak
+# Break demo.lab for the demo. Usage: ./lab/break.sh expiring|untrusted|weak|reload
 source "$(dirname "$0")/lib.sh"
 
 mode=${1:-}
@@ -37,8 +37,28 @@ case "$mode" in
     ca cat /tmp/leaf.key > "$CERTS/server.key"
     ;;
 
+  reload)
+    # Leaves the served cert alone but makes every future reload fail `nginx -t`, like a half-finished
+    # config change someone left behind. Run after `weak` for demo case 3: the agent renews, the reload is
+    # refused, and it must put the old cert back. ./lab/init.sh removes the snippet.
+    mkdir -p "$LAB/conf.d"
+    cat > "$LAB/conf.d/zz-legacy.conf" <<'EOF'
+# Half-finished migration: nobody added the backend, so `nginx -t` rejects this file.
+upstream legacy_backend {
+    server legacy.internal:8080 max_fails=three;
+}
+EOF
+    if "${COMPOSE[@]}" exec -T nginx nginx -t -q 2>/dev/null; then
+      echo "expected nginx -t to fail, but it passed" >&2
+      exit 1
+    fi
+    log "nginx config is now invalid: reloads will fail, the running workers keep serving"
+    log "run a cycle: curl -X POST localhost:8088/api/run"
+    exit 0
+    ;;
+
   *)
-    echo "usage: $0 expiring|untrusted|weak" >&2
+    echo "usage: $0 expiring|untrusted|weak|reload" >&2
     exit 2
     ;;
 esac

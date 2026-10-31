@@ -2,7 +2,8 @@
 # Bring the lab up from scratch (or reset it): CA, root export, healthy certs, nginx.
 source "$(dirname "$0")/lib.sh"
 
-mkdir -p "$CERTS" "$LAB/webroot/.well-known/acme-challenge"
+mkdir -p "$CERTS" "$LAB/conf.d" "$LAB/webroot/.well-known/acme-challenge"
+rm -f "$LAB"/conf.d/*.conf   # undo `break.sh reload`
 
 log "starting step-ca"
 "${COMPOSE[@]}" up -d --wait ca

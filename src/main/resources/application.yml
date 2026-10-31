@@ -59,7 +59,8 @@ certagent:
 
   install:
     backup-dir: data/backups
-    reload-command: [docker, compose, -f, lab/docker-compose.yml, exec, -T, nginx, nginx, -s, reload]
+    # nginx -t first: a bare `nginx -s reload` exits 0 even when nginx rejects the config.
+    reload-command: [docker, compose, -f, lab/docker-compose.yml, exec, -T, nginx, sh, -c, "nginx -t -q && nginx -s reload"]
 
   notification:
     webhook-url: ${NOTIFY_WEBHOOK:}

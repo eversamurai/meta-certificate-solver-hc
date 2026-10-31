@@ -18,6 +18,11 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.Map;
 import java.util.Optional;
 
@@ -186,12 +191,29 @@ public class CertTools {
             err = message(e);
         }
         Verification after = verify(t);
-        events.append(runId, t.name(), Event.Kind.ROLLBACK,
-                "restored backup " + backup.id() + (err == null ? "" : " (with error: " + err + ")")
-                        + " — endpoint now serves " + shortFp(after.cert().fingerprintSha256()),
+        String backupFp = fingerprintOf(backup.cert());
+        boolean servesBackup = backupFp != null && backupFp.equals(after.cert().fingerprintSha256());
+        // If the reload after restoring also fails, nginx never loaded the new cert in the first place,
+        // so serving the backup fingerprint is the proof that matters.
+        String msg = "restored backup " + backup.id() + " — "
+                + (servesBackup ? "endpoint serves the backed-up certificate again (" + shortFp(backupFp) + ")"
+                                : "endpoint serves " + shortFp(after.cert().fingerprintSha256())
+                                  + ", not the backup " + shortFp(backupFp))
+                + (err == null ? "" : "; reload after restore also failed: " + err);
+        events.append(runId, t.name(), Event.Kind.ROLLBACK, msg,
                 EventLog.details("backupId", backup.id(), "reason", why, "error", err,
+                        "backupFingerprint", backupFp, "servesBackup", servesBackup,
                         "ok", after.ok(), "served", snapshot(after)));
         return after;
+    }
+
+    private static String fingerprintOf(Path pem) {
+        try (InputStream in = Files.newInputStream(pem)) {
+            var leaf = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(in);
+            return EndpointScanner.fingerprint(leaf);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ---- helpers ----

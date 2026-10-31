@@ -1,6 +1,6 @@
 # CertAgent — Specification of what is built
 
-Status as of **2026-10-31**, commit `1d750ac`. This file describes everything implemented so far, the decisions
+Status as of **2026-10-31**, after the demo-case-3 change (see §2). This file describes everything implemented so far, the decisions
 behind it, how the pieces behave, and what is still open. `CLAUDE.md` is the plan and the rules; this file is
 the as-built record. Where the two differ, the difference is called out in §12.
 
@@ -44,6 +44,8 @@ Totals: 14 Java files in `src/main`, 8 in `src/test`, ~2,470 lines of Java, **23
 | `39c4c8d` | `TrustConfig` (trust bundle) and `EndpointScanner` with all risk rules; test PKI helper and 10 scanner tests using real handshakes. Optional config blocks get defaults. |
 | `acb3fa4` | `EventLog`, `PolicyGate`, `CertTools` (verify real, renew/rollback gated but stubbed), `CertAgentRunner` with system prompt, `Notifier`, `EventsController`; scripted fake model for tests; context-load test. Fixed two bugs found by a smoke run (§11). |
 | `1d750ac` | `AcmeClient` and `NginxInstaller`; real renew flow with automatic rollback; `rollback` tool restores the latest backup; new outcome **Failed safely**; file-backed TLS server for tests; 6 tool tests. |
+| `190a21d` | This SPEC.md. |
+| after `190a21d` | Demo case 3 now breaks the nginx reload instead of the ACME URL: `conf.d/` include + mount, `break.sh reload` (config that fails `nginx -t`), `init.sh` clears it, reloads run `nginx -t` first (agent and scripts), ROLLBACK events record whether the endpoint serves the backup again. CLAUDE.md §6/§10 updated. |
 
 ---
 
@@ -113,7 +115,8 @@ Ignored by git: `target/`, `data/`, `lab/certs/`, `lab/webroot/`, `*.pem *.key *
   JWK provisioner `admin`, ACME provisioner `acme` enabled. Data in volume `ca-data`. Health check
   `step ca health`. ACME directory: `https://localhost:9000/acme/acme/directory`.
 - **nginx** — network aliases `demo.lab` and `shop.prod` so the CA can reach `http://demo.lab/` for http-01.
-  Mounts `nginx.conf`, `lab/certs` → `/etc/nginx/certs` and `lab/webroot` → `/var/www/acme`, all read-only.
+  Mounts `nginx.conf`, `lab/certs` → `/etc/nginx/certs`, `lab/webroot` → `/var/www/acme` and `lab/conf.d` →
+  `/etc/nginx/conf.d` (included by `nginx.conf`, normally empty), all read-only.
   - `:80` (host 8080): serves `/.well-known/acme-challenge/` from the webroot; everything else returns 200 text.
   - `:443` (host 8443): `demo.lab`, cert `server.crt` / `server.key`.
   - `:8444` (host 8444): `shop.prod`, cert `prod.crt` / `prod.key`.
@@ -124,12 +127,15 @@ All scripts set `MSYS_NO_PATHCONV=1` so Git Bash on Windows does not rewrite con
 
 | Script | Effect |
 |---|---|
-| `init.sh` | Start CA (wait healthy) → copy root to `lab/certs/root_ca.crt` → issue 24h cert for `demo.lab` and **4h** cert for `shop.prod` (inside the 6h warn window, so prod always has something for the agent to want to fix) → (re)start nginx |
+| `init.sh` | Remove any `conf.d/*.conf` → start CA (wait healthy) → copy root to `lab/certs/root_ca.crt` → issue 24h cert for `demo.lab` and **4h** cert for `shop.prod` (inside the 6h warn window, so prod always has something for the agent to want to fix) → (re)start nginx |
 | `break.sh expiring` | Lab-CA cert valid **10 minutes** (step-ca's minimum lifetime is 5m) → CRITICAL |
 | `break.sh untrusted` | Self-made "Rogue Corp Root" signs a 30-day `demo.lab` cert → CRITICAL |
 | `break.sh weak` | **RSA 1024** cert signed directly with the lab intermediate key (the CA API refuses keys under 2048), bundled with the intermediate → CRITICAL |
+| `break.sh reload` | Writes `conf.d/zz-legacy.conf`, an upstream with an invalid parameter, so `nginx -t` fails and every reload is refused while the running workers keep serving. Checks that `nginx -t` really fails. Used after `weak` for demo case 3 |
 
-Each break mode rewrites `lab/certs/server.{crt,key}` and reloads nginx.
+`expiring`, `untrusted` and `weak` rewrite `lab/certs/server.{crt,key}` and reload nginx. Every reload, in the scripts
+and in the agent, runs `nginx -t -q && nginx -s reload`: a bare `nginx -s reload` exits 0 even when nginx rejects
+the config, which would hide exactly the failure demo case 3 depends on.
 
 ---
 
@@ -152,7 +158,7 @@ Bound into `AgentProperties` (immutable records, validated). Shipped values:
 | `acme.timeout` | default `60s` | per authorization/order wait |
 | `trust.extra-roots` | `lab/certs/root_ca.crt` | missing file → warning, app still starts |
 | `install.backup-dir` | `data/backups` | |
-| `install.reload-command` | `docker compose -f lab/docker-compose.yml exec -T nginx nginx -s reload` | run from the working directory |
+| `install.reload-command` | `docker compose -f lab/docker-compose.yml exec -T nginx sh -c "nginx -t -q && nginx -s reload"` | run from the working directory; config test first so a rejected config fails the reload |
 | `install.settle-after-reload` | default `3s` | wait before verifying |
 | `notification.webhook-url` | `${NOTIFY_WEBHOOK:}` | named `notification`, not `notify` (§11) |
 | `schedule.cron` / `run-on-startup` | `0 0 6 * * *` / `true` | |
@@ -231,8 +237,12 @@ Every call goes through PolicyGate first. Results start with a fixed word the sy
 5. `verify` again; success requires **ok AND served fingerprint == new fingerprint**. VERIFY event
    `phase=after` with `before` and `served` snapshots (the before/after pair for the UI).
 6. Any exception or failed check after step 3 → **automatic restore** (restore files, reload, verify) and a
-   ROLLBACK event with backupId, reason, error, ok, served. This happens inside the tool, never at the model's
-   discretion (CLAUDE.md invariant 4).
+   ROLLBACK event with backupId, reason, error, backupFingerprint, servesBackup, ok, served. This happens inside
+   the tool, never at the model's discretion (CLAUDE.md invariant 4).
+   The proof of a good rollback is **`servesBackup`**: the endpoint serves the backed-up certificate's
+   fingerprint again. If the reload after restoring also fails (demo case 3: a config `nginx -t` rejects),
+   nginx never loaded the new cert, so it still serves the backup; the event says so instead of reading as a
+   second failure.
 
 ### 7.6 AcmeClient
 acme4j `Session` with a custom `GenericAcmeProvider` whose `HttpConnector` builds its `HttpClient` with the
@@ -323,7 +333,7 @@ risk{level: OK|WARN|CRITICAL, reasons[]})`
 | VERIFY | verify_handshake | ok, reasoning, served{ok, fingerprint, issuer, notAfter, key, reasons} |
 | VERIFY | renew (post-change) | ok, phase=`after`, before{…}, served{…} |
 | APPLY | renew | stage (`issue`/`backup`/`install`), changed, error?, ca?, backupId?, newFingerprint?, before? |
-| ROLLBACK | renew / rollback | backupId, reason, error?, ok, served{…} |
+| ROLLBACK | renew / rollback | backupId, reason, error?, backupFingerprint, servesBackup, ok, served{…} |
 | ERROR | various | (message only) |
 | NOTIFY | Notifier | (message only) |
 | DONE | runner (target) | outcome, summary (model's final text) |
@@ -351,7 +361,7 @@ risk{level: OK|WARN|CRITICAL, reasons[]})`
 | `CertAgentApplicationTest` | 1 | Full Spring context starts from `application.yml` (catches wiring bugs) |
 | `config/AgentPropertiesTest` | 4 | Binding of targets/risk/install; policy lookup; unknown tool/env → DENY; dry-run only downgrades ALLOW |
 | `scan/EndpointScannerTest` | 10 | Real handshakes: healthy, untrusted, weak 1024, expiring (critical/warn), expired, wrong hostname, closed port, verify ok/fail, wildcard rules, duration formatting |
-| `tools/CertToolsTest` | 6 | Renew fixes untrusted cert + backup content; CA failure changes nothing; untrusted new cert → auto-rollback; reload failure → auto-rollback; `rollback` tool; prod DENY never reaches the CA |
+| `tools/CertToolsTest` | 6 | Renew fixes untrusted cert + backup content; CA failure changes nothing; untrusted new cert → auto-rollback; persistent reload failure (demo case 3) → auto-rollback with `servesBackup=true`; `rollback` tool; prod DENY never reaches the CA |
 | `agent/CertAgentRunnerTest` | 2 | Full cycle with a scripted model calling real tools over three targets (untrusted/lab, warn/prod, healthy); prompt contents; exact tool results seen by the model; POLICY badges + reasoning; event order; outcomes; counts; JSONL reload. Outcome rules table |
 
 Test helpers: `TestPki` (BouncyCastle root/leaf generation, PEM writers, fixed-cert TLS server),
@@ -373,16 +383,17 @@ Run: `JAVA_HOME="C:\Program Files\Java\jdk-23.0.1" ./mvnw test`.
 | App failed to start: `EndpointScanner` had two constructors, Spring couldn't choose (unit tests didn't catch it) | `@Autowired` on the public one; added `CertAgentApplicationTest` |
 | Two runs in the same second got the same run id, merging their case cards | Random 4-hex suffix on run ids |
 | acme4j would otherwise only trust JVM roots, not the lab CA | Custom provider injects the trust bundle's `SSLContext` into acme4j's `HttpClient` |
+| `nginx -s reload` exits 0 even when the config is invalid, so a failed reload would look like success | Reloads run `nginx -t -q` first |
+| Demo case 3 as planned (bad ACME URL) could never show a rollback | Case 3 now breaks the reload (§12) |
 
 ---
 
 ## 12. Differences from CLAUDE.md and open decisions
 
-1. **Demo case 3 does not produce a rollback as written.** CLAUDE.md §10 says a bad ACME URL leads to automatic
-   rollback. As built, a bad URL fails before anything is installed, so the outcome is **Failed safely**
-   (site still up, nothing changed). Options: (a) trigger a real rollback by breaking the reload
-   (`install.reload-command` pointing at a wrong container) after `break.sh weak` — recommended, covered by
-   `failedReloadIsRolledBackAutomatically`; (b) keep the bad URL and show "Failed safely". **Undecided.**
+1. **Demo case 3 changed (decided 2026-10-31).** The original plan used a bad ACME URL, but that fails before
+   anything is installed, so it can only show **Failed safely**. Case 3 is now `break.sh weak` + `break.sh reload`:
+   renewal succeeds, `nginx -t` rejects the config, the reload fails, and the backup is restored automatically
+   → **Rolled back**. CLAUDE.md §10 updated to match; covered by `failedReloadIsRolledBackAutomatically`.
 2. **Extra outcome "Failed safely"** added beyond CLAUDE.md's Fixed / Rolled back / Needs approval.
 3. **Tool arguments are `target` + `reasoning`** (target name), not host/port/sni; the tool looks up the target.
 4. **Prod site on port 8444** added to the lab so case 2 has a real endpoint.

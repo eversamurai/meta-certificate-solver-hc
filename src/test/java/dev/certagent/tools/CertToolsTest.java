@@ -54,8 +54,8 @@ class CertToolsTest {
 
     /** What the stub CA does on the next issue() call. */
     AcmeStub ca;
-    /** When set, the next reload() throws instead of reloading. */
-    String failNextReload;
+    /** When set, every reload() throws with this message, like nginx -t rejecting a broken config. */
+    String brokenConfig;
 
     static final ToolContext CTX = new ToolContext(Map.of(CertTools.CTX_RUN_ID, "run-t"));
 
@@ -113,9 +113,8 @@ class CertToolsTest {
         var installer = new NginxInstaller(props) {
             @Override
             public void reload() throws IOException {
-                if (failNextReload != null) {
-                    String msg = failNextReload;
-                    failNextReload = null;
+                if (brokenConfig != null) {
+                    String msg = brokenConfig;
                     throw new IOException(msg);
                 }
                 try {
@@ -206,15 +205,24 @@ class CertToolsTest {
 
     @Test
     void failedReloadIsRolledBackAutomatically() throws Exception {
+        // Demo case 3: `break.sh reload` leaves a config that `nginx -t` rejects, so every reload fails —
+        // including the one after restoring. nginx keeps serving what it had, which is the backup.
         ca = issuing(labRoot);
-        failNextReload = "nginx: [emerg] cannot load certificate";
+        String emerg = "reload exited 1: nginx: [emerg] invalid parameter \"max_fails=three\"";
+        brokenConfig = emerg;
 
         String r = tools.renewCertificate("demo.lab", "renew", CTX);
 
         assertThat(r).startsWith("FAILED").contains("nginx: [emerg]", "Automatically rolled back");
         assertThat(Files.readString(certFile)).isEqualTo(originalCert);
         assertThat(caseEvents()).filteredOn(e -> e.kind() == Kind.ROLLBACK).singleElement()
-                .satisfies(e -> assertThat(e.details()).containsEntry("reason", "nginx: [emerg] cannot load certificate"));
+                .satisfies(e -> {
+                    assertThat(e.details()).containsEntry("reason", emerg)
+                            .containsEntry("error", emerg)
+                            .containsEntry("servesBackup", true);
+                    assertThat(e.message()).contains("endpoint serves the backed-up certificate again",
+                            "reload after restore also failed");
+                });
     }
 
     @Test

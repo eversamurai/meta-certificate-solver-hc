@@ -22,6 +22,7 @@ issue_from_ca() {
 }
 
 reload_nginx() {
-  "${COMPOSE[@]}" exec -T nginx nginx -s reload >/dev/null
+  # Test the config first: a bare `nginx -s reload` exits 0 even when nginx rejects the new config.
+  "${COMPOSE[@]}" exec -T nginx sh -c 'nginx -t -q && nginx -s reload' >/dev/null
   log "nginx reloaded"
 }
