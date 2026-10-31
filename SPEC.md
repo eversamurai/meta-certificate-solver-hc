@@ -29,7 +29,9 @@ over a REST API.
 | REST API | Done, smoke-tested on a running app |
 | Real Glimmer run | **Not done** (Ollama not installed) |
 | Timeline UI (`static/index.html`) | Done, checked in a browser with sample events (desktop, 375px, light/dark, live state); not yet seen with a real run |
-| README, demo video | **Not started** |
+| README | Done |
+| Public repo | Pushed to github.com/eversamurai/meta-certificate-solver-hc (`main`) |
+| Demo video | **Not started** |
 
 Totals: 14 Java files in `src/main`, 8 in `src/test`, ~2,470 lines of Java, **23 tests, all passing**.
 
@@ -46,7 +48,8 @@ Totals: 14 Java files in `src/main`, 8 in `src/test`, ~2,470 lines of Java, **23
 | `1d750ac` | `AcmeClient` and `NginxInstaller`; real renew flow with automatic rollback; `rollback` tool restores the latest backup; new outcome **Failed safely**; file-backed TLS server for tests; 6 tool tests. |
 | `190a21d` | This SPEC.md. |
 | `f948dd6` | Demo case 3 now breaks the nginx reload instead of the ACME URL: `conf.d/` include + mount, `break.sh reload` (config that fails `nginx -t`), `init.sh` clears it, reloads run `nginx -t` first (agent and scripts), ROLLBACK events record whether the endpoint serves the backup again. CLAUDE.md §6/§10 updated. |
-| after `f948dd6` | Timeline UI `static/index.html` (§7.11). `.claude/launch.json` (local preview config) git-ignored. |
+| `e53c40c` | Timeline UI `static/index.html` (§7.11). `.claude/launch.json` (local preview config) git-ignored. |
+| after `e53c40c` | Pushed to the public repo. README.md (problem, architecture, demo scenarios, run steps, config, API, tests, roadmap). |
 
 ---
 
@@ -451,7 +454,7 @@ Run: `JAVA_HOME="C:\Program Files\Java\jdk-23.0.1" ./mvnw test`.
 - Run `./lab/init.sh` and each `break.sh` mode for real; confirm http-01 from step-ca to `demo.lab` works.
 - First real run against Glimmer: check tool-calling format and whether the prompt rules are followed.
 - Timeline UI with a real run (only checked against hand-made sample events so far).
-- README, public GitHub remote, demo video, X post.
+- Demo video, X post.
 - Webhook against a real endpoint.
 
 ---
