@@ -6,6 +6,7 @@ import dev.certagent.config.TrustConfig.TrustBundle;
 import dev.certagent.model.CertRecord;
 import dev.certagent.model.CertRecord.Level;
 import dev.certagent.model.CertRecord.Risk;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.net.ssl.SNIHostName;
@@ -46,6 +47,7 @@ public class EndpointScanner {
     private final TrustBundle trust;
     private final Clock clock;
 
+    @Autowired
     public EndpointScanner(AgentProperties props, TrustBundle trust) {
         this(props, trust, Clock.systemUTC());
     }

@@ -28,14 +28,14 @@ import java.util.Date;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Throwaway CA, leaf certs and a local TLS server, so scanner tests need no docker lab. */
-final class TestPki {
+public final class TestPki {
 
     private static final AtomicLong SERIAL = new AtomicLong(System.currentTimeMillis());
 
-    record Issued(X509Certificate cert, KeyPair keys) {
+    public record Issued(X509Certificate cert, KeyPair keys) {
     }
 
-    static Issued root(String cn) throws Exception {
+    public static Issued root(String cn) throws Exception {
         KeyPair kp = rsa(2048);
         X500Name name = new X500Name("CN=" + cn);
         Instant now = Instant.now();
@@ -47,7 +47,7 @@ final class TestPki {
         return new Issued(sign(b, kp), kp);
     }
 
-    static Issued leaf(Issued ca, String dnsName, int rsaBits, Instant notBefore, Instant notAfter) throws Exception {
+    public static Issued leaf(Issued ca, String dnsName, int rsaBits, Instant notBefore, Instant notAfter) throws Exception {
         KeyPair kp = rsa(rsaBits);
         var b = new JcaX509v3CertificateBuilder(ca.cert(), BigInteger.valueOf(SERIAL.incrementAndGet()),
                 Date.from(notBefore), Date.from(notAfter), new X500Name("CN=" + dnsName), kp.getPublic());
@@ -60,7 +60,7 @@ final class TestPki {
         return new Issued(sign(b, ca.keys()), kp);
     }
 
-    static Issued leaf(Issued ca, String dnsName, Duration validFor) throws Exception {
+    public static Issued leaf(Issued ca, String dnsName, Duration validFor) throws Exception {
         Instant now = Instant.now();
         return leaf(ca, dnsName, 2048, now.minus(Duration.ofMinutes(5)), now.plus(validFor));
     }
@@ -77,11 +77,11 @@ final class TestPki {
     }
 
     /** Serves {@code leaf} on an ephemeral localhost port until closed; every connection just handshakes. */
-    static final class TlsServer implements AutoCloseable {
+    public static final class TlsServer implements AutoCloseable {
         private final SSLServerSocket socket;
         private final Thread thread;
 
-        TlsServer(Issued leaf) throws Exception {
+        public TlsServer(Issued leaf) throws Exception {
             char[] pw = "test".toCharArray();
             KeyStore ks = KeyStore.getInstance("PKCS12");
             ks.load(null, null);
@@ -102,7 +102,7 @@ final class TestPki {
             });
         }
 
-        int port() {
+        public int port() {
             return socket.getLocalPort();
         }
 
