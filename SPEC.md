@@ -28,7 +28,7 @@ over a REST API.
 | Webhook notifier | Done, not tested against a real webhook |
 | REST API | Done, smoke-tested on a running app |
 | Real Glimmer run | **Not done** (Ollama not installed) |
-| Timeline UI (`static/index.html`) | **Not started** |
+| Timeline UI (`static/index.html`) | Done, checked in a browser with sample events (desktop, 375px, light/dark, live state); not yet seen with a real run |
 | README, demo video | **Not started** |
 
 Totals: 14 Java files in `src/main`, 8 in `src/test`, ~2,470 lines of Java, **23 tests, all passing**.
@@ -45,7 +45,8 @@ Totals: 14 Java files in `src/main`, 8 in `src/test`, ~2,470 lines of Java, **23
 | `acb3fa4` | `EventLog`, `PolicyGate`, `CertTools` (verify real, renew/rollback gated but stubbed), `CertAgentRunner` with system prompt, `Notifier`, `EventsController`; scripted fake model for tests; context-load test. Fixed two bugs found by a smoke run (§11). |
 | `1d750ac` | `AcmeClient` and `NginxInstaller`; real renew flow with automatic rollback; `rollback` tool restores the latest backup; new outcome **Failed safely**; file-backed TLS server for tests; 6 tool tests. |
 | `190a21d` | This SPEC.md. |
-| after `190a21d` | Demo case 3 now breaks the nginx reload instead of the ACME URL: `conf.d/` include + mount, `break.sh reload` (config that fails `nginx -t`), `init.sh` clears it, reloads run `nginx -t` first (agent and scripts), ROLLBACK events record whether the endpoint serves the backup again. CLAUDE.md §6/§10 updated. |
+| `f948dd6` | Demo case 3 now breaks the nginx reload instead of the ACME URL: `conf.d/` include + mount, `break.sh reload` (config that fails `nginx -t`), `init.sh` clears it, reloads run `nginx -t` first (agent and scripts), ROLLBACK events record whether the endpoint serves the backup again. CLAUDE.md §6/§10 updated. |
+| after `f948dd6` | Timeline UI `static/index.html` (§7.11). `.claude/launch.json` (local preview config) git-ignored. |
 
 ---
 
@@ -99,6 +100,7 @@ src/main/java/dev/certagent/
   agent/Notifier.java         webhook summary
   store/EventLog.java         append-only timeline, memory + JSONL
   web/EventsController.java   /api/events, /api/inventory, /api/status, POST /api/run
+src/main/resources/static/index.html   timeline UI (single file, no framework)
 src/main/resources/application.yml
 src/test/java/dev/certagent/  see §10
 ```
@@ -313,6 +315,47 @@ and records NOTIFY; a failure is recorded as ERROR and does not fail the run.
 | GET | `/api/status` | `{running, lastRunId, model}` |
 | POST | `/api/run` | `202 {runId}` or `409 {error}` if a run is in progress |
 
+### 7.11 Timeline UI (`src/main/resources/static/index.html`)
+One self-contained file served at `http://localhost:8088/`: vanilla HTML/CSS/JS, no framework, no build step,
+**no external requests** (system fonts only, so nothing leaves the network). Follows the system light/dark
+setting; no theme toggle (CLAUDE.md §9). Layout works down to 375px wide without horizontal scrolling.
+
+Data: polls `/api/events?since=<lastSeq>` every 1.5s and `/api/status` every 2s; **Run cycle now** posts
+`/api/run` and is disabled while a run is in progress. All grouping and state is derived in the browser from
+events, so the page needs no other endpoint.
+
+Layout, in CLAUDE.md §9 priority order:
+- **Top bar:** name, tagline, `<model> · local` chip, idle/running status, Run cycle now.
+- **Pinned run summary:** latest run id and time, the model's 3-sentence summary (or "Run in progress"),
+  and outcome count pills.
+- **Runs, newest first**, each with a header (time, run id, target count, run-level error if any) and one
+  **case card per target** (grouped by `runId + target`):
+  - Header: target · env (prod in amber) · short fault label (from the first reason: "untrusted issuer",
+    "weak key", "expires in 3h", …) · outcome pill (Fixed green, Rolled back amber, Needs approval violet,
+    Failed safely blue, Healthy green, Dry run grey, Unresolved red; "In progress" while live).
+  - **Stepper** Observed → Diagnosed → Decided → Policy → Applied → Verified, each with a colour and a short
+    sub-label (endpoint, risk level, chosen tool, policy badge, installed/reverted/blocked, handshake result).
+    Healthy cases mark the last four as "not needed" and stay compact.
+  - **Decision as the headline:** the model's `reasoning` for the change tool (or its latest reasoning) in
+    large text, then `model → tool` and the policy badge (`AUTO · lab`, `APPROVAL NEEDED · prod`, `DRY-RUN`).
+  - **Before/after proof:** two panels with issuer, key, expiry (with relative time), short fingerprint and
+    the reasons. Red = handshake fails, amber = passes with warnings, green = clean. "Before" comes from the
+    renew APPLY's `before` snapshot (else the first VERIFY, else the scan); "After" from the post-change
+    VERIFY, or "After rollback" from the ROLLBACK event. A denied case shows one "Current — left unchanged"
+    panel.
+  - **Rollback as a reversal:** `ROLLBACK  old fp → new fp (struck through) ↩ backup fp restored`, plus the
+    reason (e.g. nginx's `[emerg]` line). When the restored fingerprint equals the original, the after panel
+    says "Same certificate as before the change — the site stayed up on it."
+  - **Failed safely:** "Stopped before any change: <error>".
+  - The model's closing 2–3 sentences, then a collapsed list of every raw event for the case.
+- **Live state:** while a run is in progress, the first unfinished step of each open case pulses, and
+  "<model> is reasoning…" shows under the latest thought. Verifying counts as gathering evidence, so
+  "Decided" keeps pulsing until a change tool is chosen.
+- Scanner reasons are shown without their Java exception tail (`…: SunCertPathBuilderException: …`); the
+  full text stays in the raw event list and in what the model reads.
+
+Not built on purpose (CLAUDE.md §9): approval buttons, history charts, theme toggle.
+
 ---
 
 ## 8. Data model
@@ -407,7 +450,7 @@ Run: `JAVA_HOME="C:\Program Files\Java\jdk-23.0.1" ./mvnw test`.
 - Install Docker Desktop and Ollama; pull Glimmer and set `OLLAMA_MODEL` to its exact tag.
 - Run `./lab/init.sh` and each `break.sh` mode for real; confirm http-01 from step-ca to `demo.lab` works.
 - First real run against Glimmer: check tool-calling format and whether the prompt rules are followed.
-- Timeline UI (`src/main/resources/static/index.html`) per CLAUDE.md §9.
+- Timeline UI with a real run (only checked against hand-made sample events so far).
 - README, public GitHub remote, demo video, X post.
 - Webhook against a real endpoint.
 

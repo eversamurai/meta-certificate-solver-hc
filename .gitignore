@@ -21,3 +21,6 @@ lab/conf.d/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local preview config (machine-specific paths)
+.claude/launch.json
