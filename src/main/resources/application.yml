@@ -1,0 +1,71 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: cert-agent
+  ai:
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_MODEL:muse-glimmer}
+          temperature: 0.1
+
+certagent:
+  targets:
+    - name: demo.lab
+      host: localhost
+      port: 8443
+      sni: demo.lab
+      env: lab
+      cert-path: lab/certs/server.crt
+      key-path: lab/certs/server.key
+    - name: shop.prod
+      host: localhost
+      port: 8444
+      sni: shop.prod
+      env: prod
+      cert-path: lab/certs/prod.crt
+      key-path: lab/certs/prod.key
+
+  policy:
+    dry-run: false
+    max-actions-per-run: 10
+    environments:   # tool names in brackets: Spring drops "_" from bare map keys
+      lab:
+        "[verify_handshake]": ALLOW
+        "[renew_certificate]": ALLOW
+        "[rollback]": ALLOW
+      prod:
+        "[verify_handshake]": ALLOW
+        "[renew_certificate]": DENY
+        "[rollback]": DENY
+
+  # The lab CA issues 24h certs, so the windows are in hours here, not the usual weeks.
+  risk:
+    warn-within: 6h
+    critical-within: 30m
+    min-rsa-bits: 2048
+
+  acme:
+    directory-url: https://localhost:9000/acme/acme/directory
+    account-key: data/acme-account.pem
+    webroot: lab/webroot
+
+  trust:
+    extra-roots:
+      - lab/certs/root_ca.crt
+
+  install:
+    backup-dir: data/backups
+    reload-command: [docker, compose, -f, lab/docker-compose.yml, exec, -T, nginx, nginx, -s, reload]
+
+  notification:
+    webhook-url: ${NOTIFY_WEBHOOK:}
+
+  schedule:
+    cron: "0 0 6 * * *"
+    run-on-startup: true
+
+  event-log: data/events.jsonl

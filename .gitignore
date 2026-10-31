@@ -1,0 +1,22 @@
+# Build
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+# Runtime state: timeline, backups, ACME account key
+data/
+
+# Never commit keys or certs
+lab/certs/
+lab/webroot/
+*.pem
+*.key
+*.crt
+*.jks
+*.p12
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
