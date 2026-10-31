@@ -18,12 +18,12 @@ import java.util.Map;
 public record AgentProperties(
         @NotEmpty @Valid List<Target> targets,
         @Valid Policy policy,
-        @Valid Risk risk,
+        @DefaultValue @Valid Risk risk,
         @Valid Acme acme,
-        @Valid Trust trust,
+        @DefaultValue Trust trust,
         @Valid Install install,
-        Notification notification,
-        @Valid Schedule schedule,
+        @DefaultValue Notification notification,
+        @DefaultValue @Valid Schedule schedule,
         @DefaultValue("data/events.jsonl") Path eventLog) {
 
     /** One HTTPS endpoint the agent watches. certPath/keyPath say where its nginx reads the cert. */
