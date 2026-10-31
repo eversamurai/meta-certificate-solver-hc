@@ -220,7 +220,10 @@ public class CertAgentRunner {
     /** Outcome comes from what actually happened on the timeline, not from what the model says happened. */
     static String outcome(List<Event> caseEvents) {
         boolean rolledBack = caseEvents.stream().anyMatch(e -> e.kind() == Kind.ROLLBACK);
-        boolean applied = caseEvents.stream().anyMatch(e -> e.kind() == Kind.APPLY);
+        boolean applied = caseEvents.stream()
+                .anyMatch(e -> e.kind() == Kind.APPLY && Boolean.TRUE.equals(e.details().get("changed")));
+        boolean failedBeforeChange = caseEvents.stream()
+                .anyMatch(e -> e.kind() == Kind.APPLY && Boolean.FALSE.equals(e.details().get("changed")));
         Event lastVerify = caseEvents.stream().filter(e -> e.kind() == Kind.VERIFY)
                 .reduce((a, b) -> b).orElse(null);
         boolean verifiedOk = lastVerify != null && Boolean.TRUE.equals(lastVerify.details().get("ok"));
@@ -229,6 +232,7 @@ public class CertAgentRunner {
         if (applied && verifiedOk) return "Fixed";
         if (hasChangeDecision(caseEvents, "DENY")) return "Needs approval";
         if (hasChangeDecision(caseEvents, "DRY_RUN")) return "Dry run";
+        if (failedBeforeChange) return "Failed safely";
         return "Unresolved";
     }
 

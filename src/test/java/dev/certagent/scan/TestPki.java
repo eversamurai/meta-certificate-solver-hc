@@ -11,19 +11,23 @@ import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.shredzone.acme4j.util.KeyPairUtils;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -74,6 +78,22 @@ public final class TestPki {
         KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
         g.initialize(bits);
         return g.generateKeyPair();
+    }
+
+    public static String certPem(X509Certificate... chain) throws Exception {
+        var enc = Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII));
+        StringBuilder sb = new StringBuilder();
+        for (X509Certificate c : chain) {
+            sb.append("-----BEGIN CERTIFICATE-----\n").append(enc.encodeToString(c.getEncoded()))
+                    .append("\n-----END CERTIFICATE-----\n");
+        }
+        return sb.toString();
+    }
+
+    public static String keyPem(KeyPair kp) throws IOException {
+        StringWriter w = new StringWriter();
+        KeyPairUtils.writeKeyPair(kp, w);
+        return w.toString();
     }
 
     /** Serves {@code leaf} on an ephemeral localhost port until closed; every connection just handshakes. */

@@ -226,7 +226,7 @@ public class EndpointScanner {
         }
     }
 
-    private static String fingerprint(X509Certificate cert) {
+    public static String fingerprint(X509Certificate cert) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(cert.getEncoded()));
         } catch (Exception e) {

@@ -57,13 +57,17 @@ class CertAgentRunnerTest {
                     "prod", Map.of("verify_handshake", Decision.ALLOW, "renew_certificate", Decision.DENY)));
             var props = new AgentProperties(targets, policy,
                     new AgentProperties.Risk(Duration.ofHours(6), Duration.ofMinutes(30), 2048, 256, List.of()),
-                    null, null, null, new AgentProperties.Notification(null), new AgentProperties.Schedule("-", false),
+                    new AgentProperties.Acme("https://localhost:1/acme/acme/directory", tmp.resolve("acct.pem"),
+                            tmp.resolve("webroot").toString(), Duration.ofSeconds(1), Duration.ofSeconds(2)),
+                    null, null, new AgentProperties.Notification(null), new AgentProperties.Schedule("-", false),
                     tmp.resolve("events.jsonl"));
 
             var events = new EventLog(props, new ObjectMapper().findAndRegisterModules());
             var scanner = new EndpointScanner(props, TrustConfig.fromRoots(List.of(labRoot.cert())));
             var gate = new PolicyGate(props, events);
-            var tools = new CertTools(props, scanner, gate, events);
+            // No CA is listening on localhost:1, so the lab renewal fails before touching anything.
+            var tools = new CertTools(props, scanner, gate, events,
+                    new dev.certagent.acme.AcmeClient(props, TrustConfig.fromRoots(List.of(labRoot.cert()))), null);
 
             var model = new ScriptedChatModel(prompt -> {
                 if (prompt.contains("Case: target demo.lab")) return new Script(List.of(
@@ -89,7 +93,7 @@ class CertAgentRunnerTest {
             // What the model actually reads back; Spring AI JSON-encodes String results, so strip the quotes.
             assertThat(model.toolResults).map(r -> r.replace("-> \"", "-> ")).satisfiesExactly(
                     r -> assertThat(r).startsWith("verify_handshake -> FAIL demo.lab: chain does not validate"),
-                    r -> assertThat(r).startsWith("renew_certificate -> ERROR: renewal executor is not available"),
+                    r -> assertThat(r).startsWith("renew_certificate -> FAILED: ACME issuance from https://localhost:1/acme/acme/directory failed"),
                     r -> assertThat(r).startsWith("verify_handshake -> OK shop.prod: trusted chain"),
                     r -> assertThat(r).startsWith("renew_certificate -> DENIED: policy for env 'prod'"));
 
@@ -105,14 +109,14 @@ class CertAgentRunnerTest {
 
             // Outcomes come from the timeline, not the model's words.
             assertThat(events.forCase("run-test", "shop.prod").getLast().message()).isEqualTo("Needs approval");
-            assertThat(events.forCase("run-test", "demo.lab").getLast().message()).isEqualTo("Unresolved");
+            assertThat(events.forCase("run-test", "demo.lab").getLast().message()).isEqualTo("Failed safely");
             assertThat(events.forCase("run-test", "ok.lab").getLast().message()).isEqualTo("Healthy");
 
             Event done = events.forCase("run-test", null).getLast();
             assertThat(done.kind()).isEqualTo(Kind.DONE);
             assertThat(done.message()).isEqualTo("One fixed, one waiting for approval, one healthy.");
             assertThat(done.details().get("counts"))
-                    .isEqualTo(Map.of("Unresolved", 1, "Needs approval", 1, "Healthy", 1));
+                    .isEqualTo(Map.of("Failed safely", 1, "Needs approval", 1, "Healthy", 1));
 
             // The JSONL file reloads into an identical timeline.
             var reloaded = new EventLog(props, new ObjectMapper().findAndRegisterModules());
@@ -123,7 +127,8 @@ class CertAgentRunnerTest {
 
     @Test
     void outcomeIsDerivedFromEvents() {
-        Event applyOk = ev(Kind.APPLY, Map.of());
+        Event applyOk = ev(Kind.APPLY, Map.of("changed", true));
+        Event issueFailed = ev(Kind.APPLY, Map.of("changed", false));
         Event verifyOk = ev(Kind.VERIFY, Map.of("ok", true));
         Event verifyFail = ev(Kind.VERIFY, Map.of("ok", false));
         Event rollback = ev(Kind.ROLLBACK, Map.of());
@@ -137,6 +142,7 @@ class CertAgentRunnerTest {
         assertThat(CertAgentRunner.outcome(List.of(verifyOk, denyRenew))).isEqualTo("Needs approval");
         assertThat(CertAgentRunner.outcome(List.of(denyVerify))).isEqualTo("Unresolved");
         assertThat(CertAgentRunner.outcome(List.of(dryRenew))).isEqualTo("Dry run");
+        assertThat(CertAgentRunner.outcome(List.of(verifyFail, issueFailed))).isEqualTo("Failed safely");
     }
 
     private static Event ev(Kind kind, Map<String, Object> details) {
