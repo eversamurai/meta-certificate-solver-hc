@@ -2,7 +2,8 @@
 set -euo pipefail
 export MSYS_NO_PATHCONV=1   # Git Bash on Windows: don't rewrite /home/step/... into C:/...
 
-LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `pwd -W` gives D:/dev/... on Git Bash: docker.exe can't read /d/dev/... once MSYS_NO_PATHCONV is set.
+LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && (pwd -W 2>/dev/null || pwd))"
 CERTS="$LAB/certs"
 COMPOSE=(docker compose -f "$LAB/docker-compose.yml")
 PW=/home/step/secrets/password
