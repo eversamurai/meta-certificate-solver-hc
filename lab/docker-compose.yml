@@ -35,8 +35,11 @@ services:
       - "8080:80"
       - "8443:443"
       - "8444:8444"
+    environment:
+      OPENSSL_CONF: /etc/nginx/openssl-lab.cnf   # security level 0, so `break.sh weak` can serve RSA 1024
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/openssl-lab.cnf:/etc/nginx/openssl-lab.cnf:ro
       - ./certs:/etc/nginx/certs:ro
       - ./webroot:/var/www/acme:ro
       - ./conf.d:/etc/nginx/conf.d:ro

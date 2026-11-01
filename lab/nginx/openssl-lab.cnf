@@ -1,0 +1,13 @@
+# OpenSSL config for the lab's nginx only (via OPENSSL_CONF). OpenSSL 3 defaults to security level 2,
+# which refuses to load an RSA key under 2048 bits ("ee key too small"), so `break.sh weak` could never put
+# the weak cert on the wire. Level 0 lets nginx serve it; detecting it is CertAgent's job, not nginx's.
+openssl_conf = openssl_init
+
+[openssl_init]
+ssl_conf = ssl_sect
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+CipherString = DEFAULT:@SECLEVEL=0
