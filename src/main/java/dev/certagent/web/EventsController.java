@@ -4,6 +4,7 @@ import dev.certagent.agent.CertAgentRunner;
 import dev.certagent.model.CertRecord;
 import dev.certagent.model.Event;
 import dev.certagent.store.EventLog;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,10 +23,12 @@ public class EventsController {
 
     private final EventLog events;
     private final CertAgentRunner runner;
+    private final String hosting;
 
-    public EventsController(EventLog events, CertAgentRunner runner) {
+    public EventsController(EventLog events, CertAgentRunner runner, @Value("${llm.hosting:local}") String hosting) {
         this.events = events;
         this.runner = runner;
+        this.hosting = hosting;
     }
 
     /** Timeline entries after {@code since}; the UI polls with the last seq it has. */
@@ -45,6 +48,7 @@ public class EventsController {
         m.put("running", runner.isRunning());
         m.put("lastRunId", runner.lastRunId());
         m.put("model", runner.model());
+        m.put("hosting", hosting);   // "local" for the open-weights model on this machine, else the provider
         return m;
     }
 

@@ -75,7 +75,7 @@ public class CertAgentRunner {
 
     public CertAgentRunner(AgentProperties props, EndpointScanner scanner, CertTools tools, PolicyGate gate,
                            EventLog events, Notifier notifier, ChatClient.Builder chat,
-                           @Value("${spring.ai.ollama.chat.options.model:unknown}") String model) {
+                           @Value("${llm.name:unknown}") String model) {
         this.props = props;
         this.scanner = scanner;
         this.tools = tools;

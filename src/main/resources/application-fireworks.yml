@@ -1,0 +1,25 @@
+# Hosted model instead of the local one. Activate with SPRING_PROFILES_ACTIVE=fireworks
+# (or --spring.profiles.active=fireworks). Fireworks speaks the OpenAI API, so Spring AI's OpenAI client is used.
+#
+#   FIREWORKS_API_KEY   required. Never put it in this file.
+#   FIREWORKS_MODEL     required, e.g. accounts/fireworks/models/<model-id>
+#   FIREWORKS_BASE_URL  optional, defaults to https://api.fireworks.ai/inference
+#
+# What leaves the machine: each case prompt (target name, endpoint, certificate details and findings) and the
+# tool results the model reads. Private keys, certificates and every tool action stay local, and the policy
+# gate, backups, verification and rollback work exactly as with the local model.
+spring:
+  ai:
+    model:
+      chat: openai
+    openai:
+      base-url: ${FIREWORKS_BASE_URL:https://api.fireworks.ai/inference}
+      api-key: ${FIREWORKS_API_KEY}
+      chat:
+        options:
+          model: ${FIREWORKS_MODEL}
+          temperature: 0.1
+
+llm:
+  name: ${spring.ai.openai.chat.options.model}
+  hosting: Fireworks
