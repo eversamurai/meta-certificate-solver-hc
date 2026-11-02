@@ -9,7 +9,8 @@ spring:
       base-url: ${OLLAMA_URL:http://localhost:11434}
       chat:
         options:
-          model: ${OLLAMA_MODEL:muse-glimmer}
+          model: ${OLLAMA_MODEL:muse-glimmer:30b}
+          num-ctx: 8192        # thinking + case prompt + tool schemas don't fit Ollama's 4096 default
           temperature: 0.1
 
 certagent:
@@ -31,7 +32,7 @@ certagent:
 
   policy:
     dry-run: false
-    max-actions-per-run: 10
+    max-actions-per-run: 20   # counts verifies too; raised from 10 so cases 1 and 2 fit in one run
     environments:   # tool names in brackets: Spring drops "_" from bare map keys
       lab:
         "[verify_handshake]": ALLOW

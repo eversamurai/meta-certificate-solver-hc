@@ -12,8 +12,9 @@ the old certificate is restored automatically. Every step, including the model's
 Built for the Meta Global AI Developer Hackathon (Cerebral Valley, Oct 26 – Nov 4 2026), Indie Developer track,
 theme *Build for Your World*.
 
-> Status: the agent, tools, policy, rollback and timeline are built and tested (23 tests). The end-to-end run
-> against the docker lab and Glimmer is the next step. See [SPEC.md](SPEC.md) for exactly what exists.
+> Status: the agent, tools, policy, rollback and timeline are built and tested (23 tests), and all three demo
+> cases have run end to end against the docker lab with Glimmer running locally (see
+> [Runs on-prem on open weights](#runs-on-prem-on-open-weights)). See [SPEC.md](SPEC.md) for exactly what exists.
 
 ---
 
@@ -88,6 +89,43 @@ Rules the code enforces:
 | 1 | `./lab/break.sh untrusted` (cert from "Rogue Corp Root") | verifies, renews via ACME, verifies again | **Fixed** |
 | 2 | `shop.prod` inside its renew window | proposes a renewal; policy for `prod` denies it | **Needs approval** |
 | 3 | `./lab/break.sh weak` then `./lab/break.sh reload` (1024-bit key, plus an nginx config that fails `nginx -t`) | renews, but the reload is refused, so the previous cert is restored automatically and the site stays up | **Rolled back** |
+
+---
+
+## Runs on-prem on open weights
+
+Every decision in the demo is made by **Muse Glimmer running on one local machine**. There is no cloud API and no
+telemetry. Ollama listens on localhost, ACME goes to the lab's own CA, and the endpoints are inside the docker lab.
+
+| | |
+|---|---|
+| Model | `muse-glimmer:30b`: 27.9B parameters, Q4_K_M quantisation, open weights |
+| Runtime | Ollama 0.40.13 on `localhost:11434` |
+| Settings | `num-ctx: 8192` (Ollama's 4096 default is too small for the model's thinking plus the case prompt and tool schemas), `temperature: 0.1` |
+| Hardware | One NVIDIA RTX 4070 (12 GB). About 9.3 GB of the model fits on the GPU and the rest runs on the CPU |
+| Speed measured | About 6.6 tokens/s generation. Each model call took 19 s to 4 min once loaded; the first call of a fresh Ollama session took 12.5 min |
+
+### Runs recorded on 2026-11-01
+
+| Run | Scenario | Outcome | Proof |
+|---|---|---|---|
+| `run-20261101-201830-5d01` | 1 + 2 (`untrusted`, prod in renew window) | demo.lab **Fixed**, shop.prod **Needs approval** | renewed via ACME; the cert served afterwards (`ccc70ef9a8af…`) is the one the agent installed; prod renewal denied by policy |
+| `run-20261101-203947-580e` | 3 (`weak` + `reload`) | demo.lab **Rolled back**, shop.prod **Needs approval** | nginx refused the reload (`[emerg] invalid parameter "max_fails=three"`); backup `3a5ed6a33e6e…` restored automatically; a client probing every 2 s never saw a failed request |
+| `run-20261101-212515-4a48` | 1 + 2, with the model's thinking streamed live | demo.lab **Fixed**, shop.prod **Needs approval** | served fingerprint `14cd21034594…` matches the timeline's "After" |
+
+Each full run took 12 to 21 minutes on this hardware, almost all of it model time. The tool calls themselves
+(ACME, install, reload, verify) take seconds.
+
+The demo environment used for these runs (Java services behind the lab's nginx, a strict-TLS traffic probe, and a
+relay that shows the model's reasoning live) is in
+[eversamurai/certagent-demo-apps](https://github.com/eversamurai/certagent-demo-apps).
+
+To run the same model:
+
+```bash
+ollama pull muse-glimmer:30b
+export OLLAMA_MODEL=muse-glimmer:30b    # also the default in application.yml
+```
 
 ---
 
