@@ -169,8 +169,16 @@ Bound into `AgentProperties` (immutable records, validated). Shipped values:
 | `schedule.cron` / `run-on-startup` | `0 0 6 * * *` / `true` | |
 | `event-log` | `data/events.jsonl` | |
 
-Spring AI: `spring.ai.ollama.base-url=${OLLAMA_URL:http://localhost:11434}`,
-`chat.options.model=${OLLAMA_MODEL:muse-glimmer}`, `temperature=0.1`. Server port **8088**.
+Spring AI: `spring.ai.model.chat=ollama` (embedding, image, audio and moderation set to `none`),
+`spring.ai.ollama.base-url=${OLLAMA_URL:http://localhost:11434}`, `chat.options.model=${OLLAMA_MODEL:muse-glimmer:30b}`,
+`num-ctx=8192`, `temperature=0.1`. Server port **8088**.
+
+**Model switch (added 2026-11-01).** Profile `fireworks` (`application-fireworks.yml`) sets
+`spring.ai.model.chat=openai`, with `spring.ai.openai.base-url=${FIREWORKS_BASE_URL:https://api.fireworks.ai/inference}`,
+`api-key=${FIREWORKS_API_KEY}` and `chat.options.model=${FIREWORKS_MODEL}` (both required, no defaults). `llm.name`
+and `llm.hosting` (`local` / `Fireworks`) label the model in PLAN events, `/api/status` (`model`, `hosting`) and the
+timeline chip. Verified by running the profile against Ollama's OpenAI-compatible `/v1/chat/completions`: same tool
+calls, same outcome (shop.prod **Needs approval**).
 
 ---
 

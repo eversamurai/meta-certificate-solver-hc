@@ -161,19 +161,50 @@ account.
 Everything lives in [`src/main/resources/application.yml`](src/main/resources/application.yml) under
 `certagent.*`: targets, policy per environment and tool, risk thresholds, ACME directory, extra trusted roots,
 the reload command, the webhook and the schedule. Environment variables: `OLLAMA_URL` (default
-`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`.
+`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, and for the `fireworks` profile
+`FIREWORKS_API_KEY`, `FIREWORKS_MODEL`, `FIREWORKS_BASE_URL`.
 
 Example policy:
 ```yaml
 certagent:
   policy:
     dry-run: false            # true turns every ALLOW into DRY_RUN
-    max-actions-per-run: 10
+    max-actions-per-run: 20
     environments:
       lab:  { "[verify_handshake]": ALLOW, "[renew_certificate]": ALLOW, "[rollback]": ALLOW }
       prod: { "[verify_handshake]": ALLOW, "[renew_certificate]": DENY,  "[rollback]": DENY }
 ```
 A tool or environment that isn't listed is denied.
+
+### Choosing the model: local open weights or Fireworks
+
+By default CertAgent uses **Muse Glimmer on this machine through Ollama**, and nothing leaves the network. The
+`fireworks` profile switches the same agent to a hosted model on [Fireworks](https://fireworks.ai) (any
+OpenAI-compatible API works). Nothing else changes: the tools, policy gate, backups, verification and rollback
+all run locally either way.
+
+```bash
+# Default: local open weights
+export OLLAMA_MODEL=muse-glimmer:30b
+./mvnw spring-boot:run
+
+# Hosted on Fireworks
+export SPRING_PROFILES_ACTIVE=fireworks
+export FIREWORKS_API_KEY=...                                # never commit it
+export FIREWORKS_MODEL=accounts/fireworks/models/<model-id>
+./mvnw spring-boot:run
+```
+
+| | Local (default) | `fireworks` profile |
+|---|---|---|
+| Client | Spring AI Ollama | Spring AI OpenAI, pointed at `https://api.fireworks.ai/inference` (`FIREWORKS_BASE_URL` to change it) |
+| Leaves the machine | nothing | each case prompt (target name, endpoint, certificate details and findings) and the tool results the model reads. Never private keys or certificate files |
+| Timeline chip | `muse-glimmer:30b · local` | `<model> · Fireworks` |
+
+`GET /api/status` reports the active model and where it runs (`hosting`). If the profile is on but
+`FIREWORKS_MODEL` or `FIREWORKS_API_KEY` is missing, startup fails instead of silently using the local model.
+The switch is set in [`application-fireworks.yml`](src/main/resources/application-fireworks.yml):
+`spring.ai.model.chat` selects `ollama` or `openai`.
 
 ### API
 | | |

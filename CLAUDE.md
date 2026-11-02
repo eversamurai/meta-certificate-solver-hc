@@ -81,7 +81,9 @@ Scanner (code)  ──▶  Inventory + risk findings (deterministic, no model)
 4. Every change is preceded by a backup and followed by a strict `verify()`. Failure ⇒ automatic rollback inside
    the tool, not at the model's discretion.
 5. Every tool has a `reasoning` parameter and records it on the timeline. The model's words are the product.
-6. Nothing leaves the network: no cloud APIs, no telemetry. Ollama on localhost only.
+6. Nothing leaves the network: no cloud APIs, no telemetry. Ollama on localhost only. The one exception is the
+   opt-in `fireworks` profile (owner's decision, 2026-11-01), which sends case prompts to a hosted model; it is
+   never the default, and the local run stays the recorded proof for the Open Weights prize (§11).
 
 ## 6. Stack and layout
 
