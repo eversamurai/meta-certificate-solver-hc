@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Break demo.lab for the demo. Usage: ./lab/break.sh expiring|untrusted|weak|reload
+# Break a lab site for the demo. Usage: ./lab/break.sh expiring|untrusted|weak|reload|hostname
+# All modes break demo.lab except `hostname`, which breaks accounts.lab.
 source "$(dirname "$0")/lib.sh"
 
 mode=${1:-}
@@ -37,6 +38,15 @@ case "$mode" in
     ca cat /tmp/leaf.key > "$CERTS/server.key"
     ;;
 
+  hostname)
+    # A valid, trusted lab-CA cert, but issued for the old name: the classic "copied the wrong cert" mistake.
+    log "installing a cert for accounts.lab that was issued for legacy-accounts.lab"
+    issue_from_ca legacy-accounts.lab 24h accounts
+    reload_nginx
+    log "accounts.lab now serves a cert for the wrong hostname — run a cycle: curl -X POST localhost:8088/api/run"
+    exit 0
+    ;;
+
   reload)
     # Leaves the served cert alone but makes every future reload fail `nginx -t`, like a half-finished
     # config change someone left behind. Run after `weak` for demo case 3: the agent renews, the reload is
@@ -58,7 +68,7 @@ EOF
     ;;
 
   *)
-    echo "usage: $0 expiring|untrusted|weak|reload" >&2
+    echo "usage: $0 expiring|untrusted|weak|reload|hostname" >&2
     exit 2
     ;;
 esac

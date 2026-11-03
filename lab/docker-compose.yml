@@ -1,6 +1,7 @@
 # CertAgent lab: a private ACME CA (step-ca) and one nginx serving two sites.
 #   demo.lab  -> https://localhost:8443   (env: lab,  agent may fix it)
 #   shop.prod -> https://localhost:8444   (env: prod, agent must stop at policy)
+#   accounts.lab -> https://localhost:8445 (env: lab, `break.sh hostname` serves a cert for the wrong name)
 # The CA validates http-01 by fetching http://demo.lab/.well-known/acme-challenge/ on this network,
 # which nginx serves from ./webroot. The agent writes challenge files into ./webroot on the host.
 name: certagent-lab
@@ -30,11 +31,12 @@ services:
     image: nginx:1.30-alpine
     networks:
       default:
-        aliases: [demo.lab, shop.prod]
+        aliases: [demo.lab, shop.prod, accounts.lab]
     ports:
       - "8080:80"
       - "8443:443"
       - "8444:8444"
+      - "8445:8445"
     environment:
       OPENSSL_CONF: /etc/nginx/openssl-lab.cnf   # security level 0, so `break.sh weak` can serve RSA 1024
     volumes:

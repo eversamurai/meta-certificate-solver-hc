@@ -15,9 +15,11 @@ log "issuing healthy 24h cert for demo.lab"
 issue_from_ca demo.lab 24h server
 log "issuing 4h cert for shop.prod (inside the warn window, so the agent wants to act)"
 issue_from_ca shop.prod 4h prod
+log "issuing healthy 24h cert for accounts.lab"
+issue_from_ca accounts.lab 24h accounts
 
 log "starting nginx"
 "${COMPOSE[@]}" up -d --force-recreate nginx
 
-log "ready: https://localhost:8443 (demo.lab, lab)  https://localhost:8444 (shop.prod, prod)"
+log "ready: https://localhost:8443 (demo.lab, lab)  https://localhost:8444 (shop.prod, prod)  https://localhost:8445 (accounts.lab, lab)"
 log "ACME directory: https://localhost:9000/acme/acme/directory"
