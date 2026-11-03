@@ -137,6 +137,7 @@ All scripts set `MSYS_NO_PATHCONV=1` so Git Bash on Windows does not rewrite con
 | `break.sh untrusted` | Self-made "Rogue Corp Root" signs a 30-day `demo.lab` cert → CRITICAL |
 | `break.sh weak` | **RSA 1024** cert signed directly with the lab intermediate key (the CA API refuses keys under 2048), bundled with the intermediate → CRITICAL |
 | `break.sh reload` | Writes `conf.d/zz-legacy.conf`, an upstream with an invalid parameter, so `nginx -t` fails and every reload is refused while the running workers keep serving. Checks that `nginx -t` really fails. Used after `weak` for demo case 3 |
+| `break.sh hostname` | Third site **accounts.lab** (env `lab`, host port 8445, `accounts.{crt,key}`, issued 24h by `init.sh`): installs a lab-CA cert issued for `legacy-accounts.lab`, so the chain is trusted but the hostname check fails → CRITICAL. Demo case 4; the system prompt's rule 2 lists a SAN mismatch as fixed by `renew_certificate` (without that, Spark verified and stopped at **Unresolved**) |
 
 `expiring`, `untrusted` and `weak` rewrite `lab/certs/server.{crt,key}` and reload nginx. Every reload, in the scripts
 and in the agent, runs `nginx -t -q && nginx -s reload`: a bare `nginx -s reload` exits 0 even when nginx rejects

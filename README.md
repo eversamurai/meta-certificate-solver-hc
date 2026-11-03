@@ -92,6 +92,7 @@ Rules the code enforces:
 | 1 | `./lab/break.sh untrusted` (cert from "Rogue Corp Root") | verifies, renews via ACME, verifies again | **Fixed** |
 | 2 | `shop.prod` inside its renew window | proposes a renewal; policy for `prod` denies it | **Needs approval** |
 | 3 | `./lab/break.sh weak` then `./lab/break.sh reload` (1024-bit key, plus an nginx config that fails `nginx -t`) | renews, but the reload is refused, so the previous cert is restored automatically and the site stays up | **Rolled back** |
+| 4 | `./lab/break.sh hostname` (`accounts.lab` on :8445 serves a trusted cert issued for `legacy-accounts.lab`) | sees the SAN mismatch, renews via ACME for the right name, verifies | **Fixed** |
 
 ---
 
