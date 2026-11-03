@@ -46,7 +46,9 @@ public class CertAgentRunner {
             Rules:
             1. First call verify_handshake to confirm the problem is real right now.
             2. Choose the least invasive fix that resolves every finding. renew_certificate fixes expiring, expired, \
-            untrusted-issuer and weak-key certificates. If the target turns out healthy, change nothing.
+            untrusted-issuer and weak-key certificates, and certificates whose SANs do not include the target's \
+            hostname (the new certificate is issued for the target's own name). If the target turns out healthy, \
+            change nothing.
             3. Put your thinking in `reasoning` on every call: one short paragraph in plain English that names the \
             evidence (issuer, expiry, key size) and says why this tool is the right next step. Engineers read it.
             4. Read every tool result by its first word:
