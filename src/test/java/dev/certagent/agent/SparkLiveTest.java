@@ -55,6 +55,24 @@ class SparkLiveTest {
         }
     }
 
+    /** Facts from the real run run-20261102-233317-ca0a, whose summary came back far too long for the timeline. */
+    @Test
+    void museSparkKeepsTheRunSummaryShort() {
+        var spark = ModelConfig.spark(System.getenv("MODEL_API_KEY"), "https://api.meta.ai",
+                System.getenv().getOrDefault("MUSE_SPARK_MODEL", "muse-spark-1.3"), "low", Duration.ofSeconds(120));
+        String facts = """
+                - demo.lab: Fixed — The certificate for demo.lab was issued by untrusted CN=Rogue Corp Root, causing chain validation to fail despite valid hostname and expiry. I renewed it via the trusted Lab CA, installing an RSA 2048 cert for demo.lab. Final handshake shows OK with trusted chain and hostname match, expiring in ~24h.
+                - shop.prod: Needs approval — Certificate for shop.prod is expiring in ~3h52m (within 6h renew window) but otherwise healthy with trusted Lab CA Intermediate issuer and matching hostname. Attempted renewal was DENIED by prod policy, so no change was made and human approval is required. Final state remains trusted and matching but expiring imminently at 2026-11-03T08:25:49Z.
+                - accounts.lab: Healthy""";
+
+        String summary = ChatClient.builder(spark).defaultSystem(CertAgentRunner.SYSTEM).build()
+                .prompt().user(CertAgentRunner.summaryPrompt(facts)).call().content().strip();
+        System.out.println("Spark summary (" + summary.split("\\s+").length + " words): " + summary);
+
+        assertThat(summary.split("\\s+").length).as("words").isLessThanOrEqualTo(60);
+        assertThat(summary).contains("shop.prod", "demo.lab").doesNotContain("2026-11");
+    }
+
     @Test
     void museSparkDiagnosesRenewsAndVerifiesThroughTheTools() {
         var spark = ModelConfig.spark(System.getenv("MODEL_API_KEY"), "https://api.meta.ai",

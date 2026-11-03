@@ -327,7 +327,9 @@ decides, calls tools and writes the run summary:
 `AgentModel(chatModel, name, hosting)` is passed to the runner; the timeline label is `<name> · <hosting>`
 (`muse-spark-1.3 · Meta Model API` or `muse-glimmer:30b · local`).
 
-**Run summary.** The active model writes it from `- <target>: <outcome> — <model's closing note>` lines, with no
+**Run summary.** The active model writes it from `- <target>: <outcome> — <closing note>` lines: at most 3 short
+sentences and 45 words, what a human must do first, no dates, key types or fingerprints, whitespace collapsed to one
+line (real runs: 33–36 words, down from about 90). No
 tools attached. An empty answer or a failure appends a run-level ERROR (`summary by … failed: …; using the
 rule-based line`) and the code-written line (`N target(s) checked: …`) is used; it is also used when every
 target is healthy. The DONE event's `summaryBy` records which one wrote it, and the timeline shows

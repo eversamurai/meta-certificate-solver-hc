@@ -255,6 +255,17 @@ public class CertAgentRunner {
                 && !"verify_handshake".equals(e.details().get("tool")));
     }
 
+    /** Short enough to read at a glance: this is pinned at the top of the timeline and sent to the webhook. */
+    static String summaryPrompt(String facts) {
+        return """
+                Summarise this run for the on-call channel in at most 3 short sentences and at most 45 words in total. \
+                Write plain text on one line, with no lists. Say first what a human must do, then what was fixed or \
+                rolled back. Name each target that is not Healthy with its outcome and a few words on why; do not \
+                list healthy targets. Leave out dates, key types and fingerprints. Use only these facts, and add no \
+                advice beyond what a human must approve.
+                """ + facts;
+    }
+
     /** The active model writes the summary from outcomes and its own closing notes; on failure, the code line. */
     private Summary summarize(String runId, Map<String, String> outcomes) {
         String facts = outcomes.entrySet().stream()
@@ -265,11 +276,10 @@ public class CertAgentRunner {
                 "rule-based");
         if (outcomes.values().stream().allMatch("Healthy"::equals)) return fallback;
 
-        String prompt = "Write exactly 3 sentences for the on-call channel summarising this run. "
-                + "Use only these facts; do not add advice beyond what a human must approve.\n" + facts;
         try {
-            String s = chat.prompt().user(prompt).call().content();
-            if (s != null && !s.isBlank()) return new Summary(s.strip(), model);
+            String s = chat.prompt().user(summaryPrompt(facts)).call().content();
+            // One line: the model sometimes answers with one line per target, which breaks the pinned summary.
+            if (s != null && !s.isBlank()) return new Summary(s.strip().replaceAll("\\s+", " "), model);
             events.append(runId, null, Kind.ERROR, "summary by " + model + " was empty; using the rule-based line");
         } catch (Exception e) {
             events.append(runId, null, Kind.ERROR,

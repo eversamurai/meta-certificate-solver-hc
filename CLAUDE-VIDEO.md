@@ -339,7 +339,7 @@ time-lapse.
 | Storage | Append-only JSONL | No database; a readable audit trail |
 | Tests | JUnit 5, AssertJ, BouncyCastle | Real handshakes against throwaway TLS servers with generated certificates |
 
-**Numbers for a slide:** 3 tools · 26 tests · 15 main Java files · about 1,700 lines of main Java and about 1,070 of
+**Numbers for a slide:** 3 tools · 27 tests · 15 main Java files · about 1,700 lines of main Java and about 1,070 of
 test Java · 1 single-file UI · whole demo run about 25 s.
 
 ---
@@ -454,8 +454,6 @@ Do not use mock data in the video. Every number and quote should come from a rea
 ## 10. Open items before recording
 
 - [ ] **Run case 3 on Muse Spark** at least once. So far it has only been recorded on Glimmer.
-- [ ] **Run summary is long on screen.** The Nov 2 Spark summaries run to long, stitched-together sentences or a line per
-      target, though the prompt says "exactly 3 sentences". Tighten the prompt or crop around it in the edit.
 - [ ] **Merge decision:** the demo depends on `muse-spark`, which isn't merged into `main`. Judges will see `main` first.
 - [ ] **CLAUDE.md §10** lists three cases; case 4 is documented in the README. Decide whether it's in the video.
 - [ ] **Rotate the Meta API key** after the event: it was pasted into a chat session.

@@ -151,7 +151,7 @@ class CertAgentRunnerTest {
     @Test
     void activeModelDecidesAndWritesTheSummaryAndIsLabelledWithWhereItRuns() throws Exception {
         var spark = new ScriptedChatModel(p -> new Script(List.of(),
-                p.startsWith("Case:") ? "demo.lab is unreachable; nothing to renew." : "Spark: demo.lab could not be reached."));
+                p.startsWith("Case:") ? "demo.lab is unreachable; nothing to renew." : "Spark: demo.lab\ncould not be reached."));
         EventLog[] events = new EventLog[1];
 
         var runner = runnerWith(new AgentModel(spark, "muse-spark-1.3", "Meta Model API"), events);
@@ -167,7 +167,7 @@ class CertAgentRunnerTest {
         assertThat(events[0].forCase("run-spark", "demo.lab"))
                 .anySatisfy(e -> assertThat(e.message()).isEqualTo("asking muse-spark-1.3 · Meta Model API to decide"));
         Event done = runEvents.getLast();
-        assertThat(done.message()).isEqualTo("Spark: demo.lab could not be reached.");
+        assertThat(done.message()).isEqualTo("Spark: demo.lab could not be reached.");   // always one line
         assertThat(done.details()).containsEntry("summaryBy", "muse-spark-1.3 · Meta Model API");
         assertThat(runner.model()).isEqualTo("muse-spark-1.3");
         assertThat(runner.hosting()).isEqualTo("Meta Model API");
