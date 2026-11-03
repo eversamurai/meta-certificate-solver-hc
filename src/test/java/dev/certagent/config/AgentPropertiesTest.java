@@ -24,8 +24,9 @@ class AgentPropertiesTest {
     @Test
     void bindsTargetsFromApplicationYml() {
         assertThat(props.targets()).extracting(AgentProperties.Target::name)
-                .containsExactly("demo.lab", "shop.prod");
+                .containsExactly("demo.lab", "shop.prod", "accounts.lab");
         assertThat(props.targets().get(1).env()).isEqualTo("prod");
+        assertThat(props.targets().get(2).env()).isEqualTo("lab");
         assertThat(props.targets().getFirst().domainsOrSni()).containsExactly("demo.lab");
         assertThat(props.risk().criticalWithin()).isEqualTo(Duration.ofMinutes(30));
         assertThat(props.install().reloadCommand()).startsWith("docker", "compose");

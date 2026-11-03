@@ -42,6 +42,13 @@ certagent:
       env: prod
       cert-path: lab/certs/prod.crt
       key-path: lab/certs/prod.key
+    - name: accounts.lab
+      host: localhost
+      port: 8445
+      sni: accounts.lab
+      env: lab
+      cert-path: lab/certs/accounts.crt
+      key-path: lab/certs/accounts.key
 
   policy:
     dry-run: false
