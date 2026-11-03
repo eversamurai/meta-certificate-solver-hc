@@ -45,6 +45,7 @@ public class EventsController {
         m.put("running", runner.isRunning());
         m.put("lastRunId", runner.lastRunId());
         m.put("model", runner.model());
+        m.put("summaryModel", runner.summaryModel());
         return m;
     }
 

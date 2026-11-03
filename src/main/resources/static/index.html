@@ -89,6 +89,7 @@
     background: linear-gradient(180deg, var(--panel), var(--panel-2));
   }
   .summary .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .summary .label .by { text-transform: none; letter-spacing: 0; margin-left: auto; }
   .summary p { margin: 8px 0 12px; font-size: 17px; line-height: 1.55; max-width: 80ch; }
   .counts { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -543,6 +544,7 @@ function renderSummary(runs) {
         <span>${running ? "Run in progress" : "Latest run"}</span>
         <span class="mono">${esc(latest.id)}</span>
         <span>${esc(dateTime(latest.firstTs))}</span>
+        ${done?.details.summaryBy ? `<span class="by">summary by ${esc(done.details.summaryBy)}</span>` : ""}
       </div>
       <p>${done ? esc(done.details.summary || done.message)
                 : running ? "Scanning targets and working through each case…" : "This run ended without a summary."}</p>
@@ -602,6 +604,7 @@ async function pollStatus() {
     const changed = s.running !== state.status.running || s.lastRunId !== state.status.lastRunId;
     state.status = { ...state.status, ...s };
     $("model-chip").textContent = `${s.model} · local`;
+    $("model-chip").title = "Decisions: " + s.model + " on this machine (Ollama). Run summaries: " + (s.summaryModel || s.model) + ".";
     $("status-dot").className = "dot" + (s.running ? " live" : "");
     $("status-text").textContent = s.running ? "running" : "idle";
     $("run-btn").disabled = s.running;

@@ -48,6 +48,12 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>
+        <!-- OpenAI-compatible client, without its auto-configuration, for the run summary written by
+             Muse Spark on Meta Model API. Glimmer (Ollama) stays the only auto-configured chat model. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.shredzone.acme4j</groupId>
             <artifactId>acme4j-client</artifactId>

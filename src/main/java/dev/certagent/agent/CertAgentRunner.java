@@ -68,14 +68,20 @@ public class CertAgentRunner {
     private final Notifier notifier;
     private final ChatClient chat;
     private final String model;
+    private final SparkSummarizer spark;
 
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile List<CertRecord> inventory = List.of();
     private volatile String lastRunId;
 
+    /** The run summary and who wrote it: Spark, Glimmer, or the code-written fallback. */
+    record Summary(String text, String by) {
+    }
+
     public CertAgentRunner(AgentProperties props, EndpointScanner scanner, CertTools tools, PolicyGate gate,
                            EventLog events, Notifier notifier, ChatClient.Builder chat,
-                           @Value("${spring.ai.ollama.chat.options.model:unknown}") String model) {
+                           @Value("${spring.ai.ollama.chat.options.model:unknown}") String model,
+                           SparkSummarizer spark) {
         this.props = props;
         this.scanner = scanner;
         this.tools = tools;
@@ -84,6 +90,7 @@ public class CertAgentRunner {
         this.notifier = notifier;
         this.chat = chat.defaultSystem(SYSTEM).build();
         this.model = model;
+        this.spark = spark;
     }
 
     // ---- triggers ----
@@ -128,6 +135,11 @@ public class CertAgentRunner {
         return model;
     }
 
+    /** Who writes run summaries when everything works: Spark if configured, else Glimmer. */
+    public String summaryModel() {
+        return spark.enabled() ? spark.label() : model + " · local";
+    }
+
     // ---- the cycle ----
 
     public void runCycle(String runId) {
@@ -145,10 +157,11 @@ public class CertAgentRunner {
 
             Map<String, Integer> counts = outcomes.values().stream()
                     .collect(Collectors.toMap(o -> o, o -> 1, Integer::sum, LinkedHashMap::new));
-            String summary = summarize(runId, outcomes);
-            events.append(runId, null, Kind.DONE, summary,
-                    EventLog.details("summary", summary, "counts", counts, "outcomes", outcomes));
-            notifier.send(runId, summary, counts);
+            Summary summary = summarize(runId, outcomes);
+            events.append(runId, null, Kind.DONE, summary.text(),
+                    EventLog.details("summary", summary.text(), "summaryBy", summary.by(),
+                            "counts", counts, "outcomes", outcomes));
+            notifier.send(runId, summary.text(), counts);
         } catch (Exception e) {
             events.append(runId, null, Kind.ERROR, "run failed: " + e.getMessage());
         } finally {
@@ -242,20 +255,34 @@ public class CertAgentRunner {
                 && !"verify_handshake".equals(e.details().get("tool")));
     }
 
-    private String summarize(String runId, Map<String, String> outcomes) {
+    /**
+     * Spark (Meta Model API) writes the summary if configured; on any failure Glimmer does, and if that fails too
+     * the code-written line is used. Only outcomes and Glimmer's closing notes go into the prompt.
+     */
+    private Summary summarize(String runId, Map<String, String> outcomes) {
         String facts = outcomes.entrySet().stream()
                 .map(e -> "- " + e.getKey() + ": " + e.getValue() + lastAnswer(runId, e.getKey()))
                 .collect(Collectors.joining("\n"));
-        String fallback = outcomes.size() + " target(s) checked: " + outcomes.entrySet().stream()
-                .map(e -> e.getKey() + " " + e.getValue().toLowerCase()).collect(Collectors.joining(", ")) + ".";
+        Summary fallback = new Summary(outcomes.size() + " target(s) checked: " + outcomes.entrySet().stream()
+                .map(e -> e.getKey() + " " + e.getValue().toLowerCase()).collect(Collectors.joining(", ")) + ".",
+                "rule-based");
         if (outcomes.values().stream().allMatch("Healthy"::equals)) return fallback;
+
+        String prompt = "Write exactly 3 sentences for the on-call channel summarising this run. "
+                + "Use only these facts; do not add advice beyond what a human must approve.\n" + facts;
+        if (spark.enabled()) {
+            try {
+                String s = spark.summarize(prompt);
+                if (s != null && !s.isBlank()) return new Summary(s.strip(), spark.label());
+                events.append(runId, null, Kind.ERROR, "summary by " + spark.label() + " was empty; using " + model);
+            } catch (Exception e) {
+                events.append(runId, null, Kind.ERROR,
+                        "summary by " + spark.label() + " failed: " + e.getMessage() + "; using " + model);
+            }
+        }
         try {
-            String s = chat.prompt()
-                    .user("Write exactly 3 sentences for the on-call channel summarising this run. "
-                            + "Use only these facts; do not add advice beyond what a human must approve.\n" + facts)
-                    .call()
-                    .content();
-            return s == null || s.isBlank() ? fallback : s.strip();
+            String s = chat.prompt().user(prompt).call().content();
+            return s == null || s.isBlank() ? fallback : new Summary(s.strip(), model + " · local");
         } catch (Exception e) {
             return fallback;
         }

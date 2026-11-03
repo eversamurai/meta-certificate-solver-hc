@@ -80,8 +80,9 @@ class CertAgentRunnerTest {
                         "shop.prod needs renewal but policy requires approval.");
                 return new Script(List.of(), "One fixed, one waiting for approval, one healthy.");
             });
+            var noSpark = new SparkSummarizer("", "https://api.meta.ai", "muse-spark-1.3", Duration.ofSeconds(1));
             var runner = new CertAgentRunner(props, scanner, tools, gate, events,
-                    new Notifier(props, events, RestClient.builder()), ChatClient.builder(model), "scripted");
+                    new Notifier(props, events, RestClient.builder()), ChatClient.builder(model), "scripted", noSpark);
 
             runner.runCycle("run-test");
 
@@ -115,6 +116,8 @@ class CertAgentRunnerTest {
             Event done = events.forCase("run-test", null).getLast();
             assertThat(done.kind()).isEqualTo(Kind.DONE);
             assertThat(done.message()).isEqualTo("One fixed, one waiting for approval, one healthy.");
+            assertThat(done.details()).containsEntry("summaryBy", "scripted · local");   // no MODEL_API_KEY → Glimmer
+            assertThat(runner.summaryModel()).isEqualTo("scripted · local");
             assertThat(done.details().get("counts"))
                     .isEqualTo(Map.of("Failed safely", 1, "Needs approval", 1, "Healthy", 1));
 
@@ -123,6 +126,70 @@ class CertAgentRunnerTest {
             assertThat(reloaded.since(0)).hasSameSizeAs(events.since(0));
             assertThat(reloaded.since(0).getLast().message()).isEqualTo(done.message());
         }
+    }
+
+    /** One unreachable lab target, so the case reaches the model and the run needs a summary. */
+    private CertAgentRunner runnerWith(ScriptedChatModel glimmer, SparkSummarizer spark, EventLog[] eventsOut)
+            throws Exception {
+        int closedPort;
+        try (var s = new java.net.ServerSocket(0)) {
+            closedPort = s.getLocalPort();
+        }
+        var props = new AgentProperties(
+                List.of(new Target("demo.lab", "localhost", closedPort, "demo.lab", "lab", null, null, null)),
+                new AgentProperties.Policy(false, 10, Map.of("lab", Map.of("verify_handshake", Decision.ALLOW))),
+                new AgentProperties.Risk(Duration.ofHours(6), Duration.ofMinutes(30), 2048, 256, List.of()),
+                null, null, null, new AgentProperties.Notification(null), new AgentProperties.Schedule("-", false),
+                tmp.resolve("events.jsonl"));
+        var events = new EventLog(props, new ObjectMapper().findAndRegisterModules());
+        eventsOut[0] = events;
+        var scanner = new EndpointScanner(props, TrustConfig.fromRoots(List.of(TestPki.root("Root").cert())));
+        var gate = new PolicyGate(props, events);
+        var tools = new CertTools(props, scanner, gate, events, null, null);
+        return new CertAgentRunner(props, scanner, tools, gate, events,
+                new Notifier(props, events, RestClient.builder()), ChatClient.builder(glimmer), "glimmer", spark);
+    }
+
+    @Test
+    void sparkWritesTheRunSummaryWhenConfigured() throws Exception {
+        var glimmer = new ScriptedChatModel(p -> new Script(List.of(), "demo.lab is unreachable; nothing to renew."));
+        var sparkModel = new ScriptedChatModel(p -> new Script(List.of(), "Spark: demo.lab could not be reached."));
+        var spark = new SparkSummarizer(sparkModel, "muse-spark-1.3");
+        EventLog[] events = new EventLog[1];
+
+        var runner = runnerWith(glimmer, spark, events);
+        runner.runCycle("run-spark");
+
+        // Glimmer handled the case; only the summary went to Spark, and its prompt holds outcomes, not tools.
+        assertThat(glimmer.userPrompts).singleElement().asString().startsWith("Case: target demo.lab");
+        assertThat(sparkModel.userPrompts).singleElement().asString()
+                .contains("- demo.lab: Unresolved — demo.lab is unreachable; nothing to renew.");
+        assertThat(sparkModel.toolResults).isEmpty();
+
+        Event done = events[0].forCase("run-spark", null).getLast();
+        assertThat(done.message()).isEqualTo("Spark: demo.lab could not be reached.");
+        assertThat(done.details()).containsEntry("summaryBy", "muse-spark-1.3 · Meta Model API");
+        assertThat(runner.summaryModel()).isEqualTo("muse-spark-1.3 · Meta Model API");
+    }
+
+    @Test
+    void sparkFailureFallsBackToGlimmerAndIsRecorded() throws Exception {
+        var glimmer = new ScriptedChatModel(p -> new Script(List.of(),
+                p.startsWith("Case:") ? "Unreachable." : "Glimmer: demo.lab could not be reached."));
+        var spark = new SparkSummarizer(new ScriptedChatModel(p -> {
+            throw new IllegalStateException("401 Unauthorized");
+        }), "muse-spark-1.3");
+        EventLog[] events = new EventLog[1];
+
+        runnerWith(glimmer, spark, events).runCycle("run-fallback");
+
+        List<Event> runEvents = events[0].forCase("run-fallback", null);
+        assertThat(runEvents).filteredOn(e -> e.kind() == Kind.ERROR).singleElement()
+                .satisfies(e -> assertThat(e.message())
+                        .contains("summary by muse-spark-1.3 · Meta Model API failed", "401 Unauthorized", "using glimmer"));
+        Event done = runEvents.getLast();
+        assertThat(done.message()).isEqualTo("Glimmer: demo.lab could not be reached.");
+        assertThat(done.details()).containsEntry("summaryBy", "glimmer · local");
     }
 
     @Test
