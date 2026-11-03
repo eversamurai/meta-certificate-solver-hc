@@ -311,7 +311,9 @@ change; no invented targets/tools/results; max 5 tool calls per case; finish wit
 written by the first of these that works:
 1. **Muse Spark on Meta Model API**, only when `MODEL_API_KEY` is set. It uses Spring AI's OpenAI client
    (`spring-ai-openai`, no auto-configuration, so Ollama stays the only auto-configured chat model) against
-   `https://api.meta.ai/v1/chat/completions`. 10s connect timeout, 60s read timeout, at most 2 attempts.
+   `https://api.meta.ai/v1/chat/completions` with `reasoning_effort: low` (29s → 8s for the same summary). 10s
+   connect timeout, 60s read timeout, at most 2 attempts. Verified live on 2026-11-02 (`SparkSummarizerLiveTest`,
+   runs only when `MODEL_API_KEY` is set).
    No tools are attached. The prompt holds only `- <target>: <outcome> — <Glimmer's closing note>` lines.
    An empty answer or a failure appends a run-level ERROR (`summary by … failed: …; using <glimmer>`).
 2. **Glimmer** (local), the same prompt as before.

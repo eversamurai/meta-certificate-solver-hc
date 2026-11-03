@@ -64,7 +64,8 @@ public class SparkSummarizer {
                 .build();
         return OpenAiChatModel.builder()
                 .openAiApi(api)
-                .defaultOptions(OpenAiChatOptions.builder().model(model).temperature(0.2).build())
+                // Low effort: a 3-sentence summary of known facts took 29s at the default and 8s at low, same quality.
+                .defaultOptions(OpenAiChatOptions.builder().model(model).temperature(0.2).reasoningEffort("low").build())
                 // One retry at most: the runner has its own fallback, and a run must not hang on the API.
                 .retryTemplate(RetryTemplate.builder().maxAttempts(2).fixedBackoff(1000).build())
                 .build();
