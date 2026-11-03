@@ -603,8 +603,11 @@ async function pollStatus() {
     const s = await res.json();
     const changed = s.running !== state.status.running || s.lastRunId !== state.status.lastRunId;
     state.status = { ...state.status, ...s };
-    $("model-chip").textContent = `${s.model} · local`;
-    $("model-chip").title = "Decisions: " + s.model + " on this machine (Ollama). Run summaries: " + (s.summaryModel || s.model) + ".";
+    const hosting = s.hosting || "local";
+    $("model-chip").textContent = `${s.model} · ${hosting}`;
+    $("model-chip").title = hosting === "local"
+        ? `${s.model} runs on this machine through Ollama; nothing leaves the network.`
+        : `${s.model} runs on ${hosting}; tools, policy, backups and verification run locally.`;
     $("status-dot").className = "dot" + (s.running ? " live" : "");
     $("status-text").textContent = s.running ? "running" : "idle";
     $("run-btn").disabled = s.running;

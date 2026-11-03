@@ -18,7 +18,7 @@ import dev.certagent.store.EventLog;
 import dev.certagent.tools.CertTools;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.ai.chat.client.ChatClient;
+import dev.certagent.config.ModelConfig.AgentModel;
 import org.springframework.web.client.RestClient;
 
 import java.nio.file.Path;
@@ -80,9 +80,8 @@ class CertAgentRunnerTest {
                         "shop.prod needs renewal but policy requires approval.");
                 return new Script(List.of(), "One fixed, one waiting for approval, one healthy.");
             });
-            var noSpark = new SparkSummarizer("", "https://api.meta.ai", "muse-spark-1.3", Duration.ofSeconds(1));
             var runner = new CertAgentRunner(props, scanner, tools, gate, events,
-                    new Notifier(props, events, RestClient.builder()), ChatClient.builder(model), "scripted", noSpark);
+                    new Notifier(props, events, RestClient.builder()), new AgentModel(model, "scripted", "local"));
 
             runner.runCycle("run-test");
 
@@ -116,8 +115,8 @@ class CertAgentRunnerTest {
             Event done = events.forCase("run-test", null).getLast();
             assertThat(done.kind()).isEqualTo(Kind.DONE);
             assertThat(done.message()).isEqualTo("One fixed, one waiting for approval, one healthy.");
-            assertThat(done.details()).containsEntry("summaryBy", "scripted · local");   // no MODEL_API_KEY → Glimmer
-            assertThat(runner.summaryModel()).isEqualTo("scripted · local");
+            assertThat(done.details()).containsEntry("summaryBy", "scripted · local");
+            assertThat(runner.hosting()).isEqualTo("local");
             assertThat(done.details().get("counts"))
                     .isEqualTo(Map.of("Failed safely", 1, "Needs approval", 1, "Healthy", 1));
 
@@ -129,8 +128,7 @@ class CertAgentRunnerTest {
     }
 
     /** One unreachable lab target, so the case reaches the model and the run needs a summary. */
-    private CertAgentRunner runnerWith(ScriptedChatModel glimmer, SparkSummarizer spark, EventLog[] eventsOut)
-            throws Exception {
+    private CertAgentRunner runnerWith(AgentModel model, EventLog[] eventsOut) throws Exception {
         int closedPort;
         try (var s = new java.net.ServerSocket(0)) {
             closedPort = s.getLocalPort();
@@ -147,49 +145,51 @@ class CertAgentRunnerTest {
         var gate = new PolicyGate(props, events);
         var tools = new CertTools(props, scanner, gate, events, null, null);
         return new CertAgentRunner(props, scanner, tools, gate, events,
-                new Notifier(props, events, RestClient.builder()), ChatClient.builder(glimmer), "glimmer", spark);
+                new Notifier(props, events, RestClient.builder()), model);
     }
 
     @Test
-    void sparkWritesTheRunSummaryWhenConfigured() throws Exception {
-        var glimmer = new ScriptedChatModel(p -> new Script(List.of(), "demo.lab is unreachable; nothing to renew."));
-        var sparkModel = new ScriptedChatModel(p -> new Script(List.of(), "Spark: demo.lab could not be reached."));
-        var spark = new SparkSummarizer(sparkModel, "muse-spark-1.3");
+    void activeModelDecidesAndWritesTheSummaryAndIsLabelledWithWhereItRuns() throws Exception {
+        var spark = new ScriptedChatModel(p -> new Script(List.of(),
+                p.startsWith("Case:") ? "demo.lab is unreachable; nothing to renew." : "Spark: demo.lab could not be reached."));
         EventLog[] events = new EventLog[1];
 
-        var runner = runnerWith(glimmer, spark, events);
+        var runner = runnerWith(new AgentModel(spark, "muse-spark-1.3", "Meta Model API"), events);
         runner.runCycle("run-spark");
 
-        // Glimmer handled the case; only the summary went to Spark, and its prompt holds outcomes, not tools.
-        assertThat(glimmer.userPrompts).singleElement().asString().startsWith("Case: target demo.lab");
-        assertThat(sparkModel.userPrompts).singleElement().asString()
-                .contains("- demo.lab: Unresolved — demo.lab is unreachable; nothing to renew.");
-        assertThat(sparkModel.toolResults).isEmpty();
+        // One model handles both the case and the summary; the summary prompt holds outcomes, not tools.
+        assertThat(spark.userPrompts).hasSize(2);
+        assertThat(spark.userPrompts.get(0)).startsWith("Case: target demo.lab");
+        assertThat(spark.userPrompts.get(1)).contains("- demo.lab: Unresolved — demo.lab is unreachable; nothing to renew.");
 
-        Event done = events[0].forCase("run-spark", null).getLast();
+        List<Event> runEvents = events[0].forCase("run-spark", null);
+        assertThat(runEvents.getFirst().details()).containsEntry("model", "muse-spark-1.3 · Meta Model API");
+        assertThat(events[0].forCase("run-spark", "demo.lab"))
+                .anySatisfy(e -> assertThat(e.message()).isEqualTo("asking muse-spark-1.3 · Meta Model API to decide"));
+        Event done = runEvents.getLast();
         assertThat(done.message()).isEqualTo("Spark: demo.lab could not be reached.");
         assertThat(done.details()).containsEntry("summaryBy", "muse-spark-1.3 · Meta Model API");
-        assertThat(runner.summaryModel()).isEqualTo("muse-spark-1.3 · Meta Model API");
+        assertThat(runner.model()).isEqualTo("muse-spark-1.3");
+        assertThat(runner.hosting()).isEqualTo("Meta Model API");
     }
 
     @Test
-    void sparkFailureFallsBackToGlimmerAndIsRecorded() throws Exception {
-        var glimmer = new ScriptedChatModel(p -> new Script(List.of(),
-                p.startsWith("Case:") ? "Unreachable." : "Glimmer: demo.lab could not be reached."));
-        var spark = new SparkSummarizer(new ScriptedChatModel(p -> {
+    void summaryFailureFallsBackToTheRuleBasedLineAndIsRecorded() throws Exception {
+        var model = new ScriptedChatModel(p -> {
+            if (p.startsWith("Case:")) return new Script(List.of(), "Unreachable.");
             throw new IllegalStateException("401 Unauthorized");
-        }), "muse-spark-1.3");
+        });
         EventLog[] events = new EventLog[1];
 
-        runnerWith(glimmer, spark, events).runCycle("run-fallback");
+        runnerWith(new AgentModel(model, "muse-spark-1.3", "Meta Model API"), events).runCycle("run-fallback");
 
         List<Event> runEvents = events[0].forCase("run-fallback", null);
         assertThat(runEvents).filteredOn(e -> e.kind() == Kind.ERROR).singleElement()
-                .satisfies(e -> assertThat(e.message())
-                        .contains("summary by muse-spark-1.3 · Meta Model API failed", "401 Unauthorized", "using glimmer"));
+                .satisfies(e -> assertThat(e.message()).contains(
+                        "summary by muse-spark-1.3 · Meta Model API failed", "401 Unauthorized", "rule-based"));
         Event done = runEvents.getLast();
-        assertThat(done.message()).isEqualTo("Glimmer: demo.lab could not be reached.");
-        assertThat(done.details()).containsEntry("summaryBy", "glimmer · local");
+        assertThat(done.message()).isEqualTo("1 target(s) checked: demo.lab unresolved.");
+        assertThat(done.details()).containsEntry("summaryBy", "rule-based");
     }
 
     @Test

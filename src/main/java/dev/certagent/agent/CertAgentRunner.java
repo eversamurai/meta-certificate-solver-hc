@@ -1,6 +1,7 @@
 package dev.certagent.agent;
 
 import dev.certagent.config.AgentProperties;
+import dev.certagent.config.ModelConfig.AgentModel;
 import dev.certagent.model.CertRecord;
 import dev.certagent.model.CertRecord.Level;
 import dev.certagent.model.Event;
@@ -10,7 +11,6 @@ import dev.certagent.scan.EndpointScanner;
 import dev.certagent.store.EventLog;
 import dev.certagent.tools.CertTools;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -67,30 +67,28 @@ public class CertAgentRunner {
     private final EventLog events;
     private final Notifier notifier;
     private final ChatClient chat;
-    private final String model;
-    private final SparkSummarizer spark;
+    private final AgentModel agentModel;
+    private final String model;     // label shown on the timeline, e.g. "muse-spark-1.3 · Meta Model API"
 
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile List<CertRecord> inventory = List.of();
     private volatile String lastRunId;
 
-    /** The run summary and who wrote it: Spark, Glimmer, or the code-written fallback. */
+    /** The run summary and who wrote it: the active model, or the code-written fallback. */
     record Summary(String text, String by) {
     }
 
     public CertAgentRunner(AgentProperties props, EndpointScanner scanner, CertTools tools, PolicyGate gate,
-                           EventLog events, Notifier notifier, ChatClient.Builder chat,
-                           @Value("${spring.ai.ollama.chat.options.model:unknown}") String model,
-                           SparkSummarizer spark) {
+                           EventLog events, Notifier notifier, AgentModel agentModel) {
         this.props = props;
         this.scanner = scanner;
         this.tools = tools;
         this.gate = gate;
         this.events = events;
         this.notifier = notifier;
-        this.chat = chat.defaultSystem(SYSTEM).build();
-        this.model = model;
-        this.spark = spark;
+        this.chat = ChatClient.builder(agentModel.chatModel()).defaultSystem(SYSTEM).build();
+        this.agentModel = agentModel;
+        this.model = agentModel.label();
     }
 
     // ---- triggers ----
@@ -132,12 +130,12 @@ public class CertAgentRunner {
     }
 
     public String model() {
-        return model;
+        return agentModel.name();
     }
 
-    /** Who writes run summaries when everything works: Spark if configured, else Glimmer. */
-    public String summaryModel() {
-        return spark.enabled() ? spark.label() : model + " · local";
+    /** Where the active model runs: "Meta Model API" or "local". */
+    public String hosting() {
+        return agentModel.hosting();
     }
 
     // ---- the cycle ----
@@ -255,10 +253,7 @@ public class CertAgentRunner {
                 && !"verify_handshake".equals(e.details().get("tool")));
     }
 
-    /**
-     * Spark (Meta Model API) writes the summary if configured; on any failure Glimmer does, and if that fails too
-     * the code-written line is used. Only outcomes and Glimmer's closing notes go into the prompt.
-     */
+    /** The active model writes the summary from outcomes and its own closing notes; on failure, the code line. */
     private Summary summarize(String runId, Map<String, String> outcomes) {
         String facts = outcomes.entrySet().stream()
                 .map(e -> "- " + e.getKey() + ": " + e.getValue() + lastAnswer(runId, e.getKey()))
@@ -270,22 +265,15 @@ public class CertAgentRunner {
 
         String prompt = "Write exactly 3 sentences for the on-call channel summarising this run. "
                 + "Use only these facts; do not add advice beyond what a human must approve.\n" + facts;
-        if (spark.enabled()) {
-            try {
-                String s = spark.summarize(prompt);
-                if (s != null && !s.isBlank()) return new Summary(s.strip(), spark.label());
-                events.append(runId, null, Kind.ERROR, "summary by " + spark.label() + " was empty; using " + model);
-            } catch (Exception e) {
-                events.append(runId, null, Kind.ERROR,
-                        "summary by " + spark.label() + " failed: " + e.getMessage() + "; using " + model);
-            }
-        }
         try {
             String s = chat.prompt().user(prompt).call().content();
-            return s == null || s.isBlank() ? fallback : new Summary(s.strip(), model + " · local");
+            if (s != null && !s.isBlank()) return new Summary(s.strip(), model);
+            events.append(runId, null, Kind.ERROR, "summary by " + model + " was empty; using the rule-based line");
         } catch (Exception e) {
-            return fallback;
+            events.append(runId, null, Kind.ERROR,
+                    "summary by " + model + " failed: " + e.getMessage() + "; using the rule-based line");
         }
+        return fallback;
     }
 
     private String lastAnswer(String runId, String target) {

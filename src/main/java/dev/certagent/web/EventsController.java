@@ -45,7 +45,7 @@ public class EventsController {
         m.put("running", runner.isRunning());
         m.put("lastRunId", runner.lastRunId());
         m.put("model", runner.model());
-        m.put("summaryModel", runner.summaryModel());
+        m.put("hosting", runner.hosting());   // "Meta Model API" (Muse Spark) or "local" (Glimmer via Ollama)
         return m;
     }
 
