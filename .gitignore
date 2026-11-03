@@ -26,4 +26,4 @@ Thumbs.db
 .claude/launch.json
 
 # Local secrets (e.g. the Meta Model API key). Spring Boot reads ./config/application.yml automatically.
-config/
+/config/
