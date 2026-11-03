@@ -4,17 +4,19 @@
 figures out what's wrong, fixes it, and proves it — or puts it back.**
 
 CertAgent is a TLS certificate operator for a private network. It scans HTTPS endpoints, works out in plain
-code what is wrong with each certificate, and hands the findings to **Muse Glimmer** (Meta's open-weight model,
-running locally through Ollama). The model decides what to do and calls tools. A policy gate decides whether
+code what is wrong with each certificate, and hands the findings to **Muse Spark** on Meta Model API. For a fully
+on-prem setup, the same agent runs on **Muse Glimmer**, the open-weight model distilled from Spark, through Ollama.
+The model decides what to do and calls tools. A policy gate decides whether
 each call may run. Every change is backed up first and strictly verified afterwards. If the verification fails,
 the old certificate is restored automatically. Every step, including the model's reasoning, goes on a timeline.
 
 Built for the Meta Global AI Developer Hackathon (Cerebral Valley, Oct 26 – Nov 4 2026), Indie Developer track,
 theme *Build for Your World*.
 
-> Status: the agent, tools, policy, rollback and timeline are built and tested (23 tests), and all three demo
-> cases have run end to end against the docker lab with Glimmer running locally (see
-> [Runs on-prem on open weights](#runs-on-prem-on-open-weights)). See [SPEC.md](SPEC.md) for exactly what exists.
+> Status: the agent, tools, policy, rollback and timeline are built and tested. All three demo cases have run end
+> to end against the docker lab with Glimmer running locally (see
+> [Runs on-prem on open weights](#runs-on-prem-on-open-weights)). Muse Spark is now the default model: a full case
+> (verify → renew → verify) takes about 15 s instead of minutes. See [SPEC.md](SPEC.md) for exactly what exists.
 
 ---
 
@@ -32,7 +34,8 @@ For each endpoint, on a schedule or on demand:
 1. **Observe:** a TLS handshake that records whatever chain the server presents, even an untrusted one.
 2. **Diagnose (in code, not by the model):** expired or expiring, untrusted issuer, hostname mismatch, weak key,
    forbidden signature algorithm, unreachable.
-3. **Decide:** Glimmer reads the findings and calls tools, explaining its reasoning on every call.
+3. **Decide:** the model (Muse Spark, or local Glimmer) reads the findings and calls tools, explaining its
+   reasoning on every call.
 4. **Policy:** each call gets ALLOW, DRY_RUN or DENY based on the environment (for example, lab is automatic and
    prod needs a human).
 5. **Apply:** ACME renewal from your CA, backup, install, then a config-tested nginx reload.
@@ -50,7 +53,7 @@ targets + policy (application.yml)
 EndpointScanner ──▶ findings + risk (deterministic, no model)
         │
         ▼
-Muse Glimmer via Ollama (localhost) ◀──▶ @Tool methods, each with a `reasoning` argument
+Muse Spark (Meta Model API) or Muse Glimmer (Ollama, localhost) ◀──▶ @Tool methods, each with a `reasoning` argument
         │
         ▼
 PolicyGate: ALLOW / DRY_RUN / DENY  (per environment, per tool, action budget per run)
@@ -92,32 +95,39 @@ Rules the code enforces:
 
 ---
 
-## Runs on-prem on open weights
+## The model: Muse Spark, or Glimmer fully on-prem
 
-Every decision in the demo is made by **Muse Glimmer running on one local machine**. There is no cloud API and no
-telemetry. Ollama listens on localhost, ACME goes to the lab's own CA, and the endpoints are inside the docker lab.
+One setting picks the model that decides and calls the tools. Everything else (scanner, policy gate, ACME,
+backups, install, verification, rollback) runs on your machine either way.
 
-### Optional: run summaries by Muse Spark
-
-Glimmer is distilled from **Muse Spark**. If you set `MODEL_API_KEY`, Muse Spark on
-[Meta Model API](https://dev.meta.ai/docs/overview) writes the 3-sentence summary pinned at the top of the timeline
-and sent to the webhook. The split is fixed:
-
-| | Muse Glimmer (local) | Muse Spark (Meta Model API) |
+| | `certagent.model: spark` (default) | `certagent.model: glimmer` |
 |---|---|---|
-| Decides what to do and calls the tools | yes, every case | never |
-| Writes the run summary | only without a key, or if Spark fails | yes, when `MODEL_API_KEY` is set |
-| Leaves the machine | nothing | per-target outcomes and Glimmer's closing notes. No tool calls, certificates or keys |
+| Model | **Muse Spark** (`muse-spark-1.3`) on [Meta Model API](https://dev.meta.ai/docs/overview), OpenAI-compatible Chat Completions | **Muse Glimmer** (`muse-glimmer:30b`), open weights, through local Ollama |
+| One case (verify → renew → verify) | about 15 s | minutes; a full run took 12–21 min on an RTX 4070 |
+| Leaves the machine | each case prompt (target, endpoint, certificate details, findings) and the tool results the model reads. Never certificate files or private keys | nothing |
+| Needs | `MODEL_API_KEY` | Ollama with the model pulled |
+| Timeline chip | `muse-spark-1.3 · Meta Model API` | `muse-glimmer:30b · local` |
 
 ```bash
-export MODEL_API_KEY=...                  # never commit it
-export MUSE_SPARK_MODEL=muse-spark-1.3    # optional, this is the default
+# Default: Muse Spark
+export MODEL_API_KEY=...                   # or put it in config/application.yml (git-ignored), never in the repo
+./mvnw spring-boot:run
+
+# Fully on-prem: Muse Glimmer
+export CERTAGENT_MODEL=glimmer
+ollama pull muse-glimmer:30b
 ./mvnw spring-boot:run
 ```
 
-The timeline shows who wrote each summary ("summary by muse-spark-1.3 · Meta Model API"). If the API call fails,
-the failure is recorded on the timeline and Glimmer writes the summary instead, so a run never depends on the API.
-Without the key, nothing at all leaves the machine.
+With `spark` and no key, startup fails with a clear message instead of quietly doing something else. The same
+model also writes the 3-sentence run summary; if that call fails, a rule-based line is used and the failure is
+logged on the timeline.
+
+## Runs on-prem on open weights
+
+The Nov 1 demo runs below were made entirely by **Muse Glimmer running on one local machine**, with no cloud API
+and no telemetry. Ollama listened on localhost, ACME went to the lab's own CA, and the endpoints were inside the
+docker lab.
 
 | | |
 |---|---|
@@ -146,6 +156,7 @@ To run the same model:
 
 ```bash
 ollama pull muse-glimmer:30b
+export CERTAGENT_MODEL=glimmer          # Muse Spark is the default model
 export OLLAMA_MODEL=muse-glimmer:30b    # also the default in application.yml
 ```
 
@@ -156,14 +167,14 @@ export OLLAMA_MODEL=muse-glimmer:30b    # also the default in application.yml
 ### Requirements
 - Java 21+ (no Maven install needed; the repo ships the Maven wrapper)
 - Docker with Compose
-- [Ollama](https://ollama.com) with a Muse Glimmer build pulled
+- A Meta Model API key for the default Muse Spark model, or [Ollama](https://ollama.com) with Muse Glimmer
+  pulled for the on-prem setup
 - Bash (Git Bash on Windows works)
 
 ### Steps
 ```bash
-# 1. Model
-ollama pull <glimmer-tag>              # check the exact tag with: ollama list
-export OLLAMA_MODEL=<glimmer-tag>
+# 1. Model (see "The model" above)
+export MODEL_API_KEY=...               # Muse Spark (default); or CERTAGENT_MODEL=glimmer + Ollama
 
 # 2. Lab: step-ca (ACME) + nginx serving demo.lab :8443 (lab) and shop.prod :8444 (prod)
 ./lab/init.sh                          # also writes lab/certs/root_ca.crt, which the agent trusts
@@ -183,8 +194,8 @@ account.
 Everything lives in [`src/main/resources/application.yml`](src/main/resources/application.yml) under
 `certagent.*`: targets, policy per environment and tool, risk thresholds, ACME directory, extra trusted roots,
 the reload command, the webhook and the schedule. Environment variables: `OLLAMA_URL` (default
-`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `MODEL_API_KEY` and `MUSE_SPARK_MODEL` (run summaries by
-Muse Spark, see above).
+`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `CERTAGENT_MODEL` (`spark` | `glimmer`), `MODEL_API_KEY`
+and `MUSE_SPARK_MODEL` (see [The model](#the-model-muse-spark-or-glimmer-fully-on-prem)).
 
 Example policy:
 ```yaml
@@ -203,7 +214,7 @@ A tool or environment that isn't listed is denied.
 |---|---|
 | `GET /api/events?since=<seq>` | timeline events after `seq` |
 | `GET /api/inventory` | latest scan results |
-| `GET /api/status` | `{running, lastRunId, model, summaryModel}` |
+| `GET /api/status` | `{running, lastRunId, model, hosting}` |
 | `POST /api/run` | start a cycle (`202`), or `409` if one is running |
 
 ### Tests
@@ -216,7 +227,7 @@ file-backed TLS server stands in for nginx, so renewal, verification and rollbac
 
 ## Stack
 
-Java 21 · Spring Boot 3.5 · Spring AI 1.1 (Ollama, `@Tool`) · acme4j 3.5 · step-ca · nginx · vanilla HTML/JS.
+Java 21 · Spring Boot 3.5 · Spring AI 1.1 (OpenAI-compatible client for Meta Model API, Ollama, `@Tool`) · acme4j 3.5 · step-ca · nginx · vanilla HTML/JS.
 No database: the timeline is an append-only JSONL file.
 
 ## Roadmap

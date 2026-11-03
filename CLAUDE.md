@@ -10,8 +10,10 @@ an operator-defined policy, verifies the handshake afterwards, and rolls back on
 take. Every step — including the model's reasoning — is recorded on a timeline.
 
 It is a submission to the **Meta Global AI Developer Hackathon** (Cerebral Valley, Oct 26 – Nov 4 2026),
-Indie Developer track, theme **Build for Your World**. Solo builder. The model is **Muse Glimmer**
-(Meta's 30B open-weight model) running locally through Ollama. We also target the bonus prizes
+Indie Developer track, theme **Build for Your World**. Solo builder. The model that decides is **Muse Spark** on
+Meta Model API by default (owner's decision, 2026-11-02: Glimmer took 12–21 min per run, Spark ~15 s per case).
+**Muse Glimmer** (Meta's 30B open-weight model, distilled from Spark) stays one setting away
+(`certagent.model: glimmer`), running locally through Ollama; its Nov 1 runs are the open-weights proof. We also target the bonus prizes
 *Best Build on Meta Open Weights* and *Best Agentic Use-Case*.
 
 **Hard deadline: Wednesday Nov 4, 9:00 PM ET.** Target: submitted by noon. Deliverables: public GitHub repo,
@@ -39,7 +41,7 @@ Streamlit apps, personality/job/nutrition/sports analyzers, AI medical advice, e
 
 ## 4. Locked scope (do not expand without the owner's say-so)
 
-**In:** endpoint TLS scan · risk rules in code · agent loop on Glimmer with three tools
+**In:** endpoint TLS scan · risk rules in code · agent loop on Muse Spark (default) or local Glimmer with three tools
 (`verify_handshake`, `renew_certificate`, `rollback`) · ACME renewal against step-ca · nginx install + reload ·
 policy gate (allow / dry-run / deny per environment) · strict post-change verification · automatic rollback ·
 timeline UI · daily schedule + webhook summary · docker lab with break scripts · README · demo video.
@@ -59,7 +61,8 @@ targets + policy (application.yml)
 Scanner (code)  ──▶  Inventory + risk findings (deterministic, no model)
                              │
                              ▼
-                   Muse Glimmer via Ollama  ◀──▶  @Tool methods (each takes a `reasoning` arg)
+                   Muse Spark (Meta Model API, default) or Muse Glimmer (Ollama, local)
+                             ◀──▶  @Tool methods (each takes a `reasoning` arg)
                              │
                              ▼
                    PolicyGate: ALLOW / DRY_RUN / DENY
@@ -81,14 +84,15 @@ Scanner (code)  ──▶  Inventory + risk findings (deterministic, no model)
 4. Every change is preceded by a backup and followed by a strict `verify()`. Failure ⇒ automatic rollback inside
    the tool, not at the model's discretion.
 5. Every tool has a `reasoning` parameter and records it on the timeline. The model's words are the product.
-6. Nothing leaves the network: no cloud APIs, no telemetry. Ollama on localhost only. One exception (owner's
-   decision, 2026-11-02): when `MODEL_API_KEY` is set, the **run summary** is written by Muse Spark on Meta Model
-   API, and only the per-target outcomes and Glimmer's closing notes are sent. Every decision and tool call stays
-   on local Glimmer, and any API failure falls back to Glimmer.
+6. Nothing leaves the network except the model call. With `certagent.model: spark` (the default, owner's decision
+   2026-11-02) case prompts and tool results go to Meta Model API (api.meta.ai); the tools, policy gate, backups,
+   verification and rollback always run locally, and certificates/private keys are never sent. With
+   `certagent.model: glimmer` nothing at all leaves the network (Ollama on localhost). No telemetry either way.
 
 ## 6. Stack and layout
 
-Java 21 · Spring Boot 3.5 · Spring AI (Ollama starter, `@Tool`/`@ToolParam`) · acme4j 3.x · vanilla HTML/JS.
+Java 21 · Spring Boot 3.5 · Spring AI (OpenAI-compatible client for Meta Model API, Ollama starter, `@Tool`/`@ToolParam`) ·
+acme4j 3.x · vanilla HTML/JS.
 Build with the Maven wrapper (`./mvnw`). No database: `data/events.jsonl` is the store.
 
 ```
@@ -103,7 +107,7 @@ src/main/java/dev/certagent/
   policy/PolicyGate.java         decide(tool, target, reasoning) → ALLOW | DRY_RUN | DENY (+ POLICY event)
   tools/CertTools.java           the three @Tool methods
   agent/CertAgentRunner.java     the cycle: scan → diagnose → model → notify; cron + startup + /api/run
-  agent/SparkSummarizer.java     run summary by Muse Spark on Meta Model API (only when MODEL_API_KEY is set)
+  config/ModelConfig.java        picks the model: Muse Spark (Meta Model API, default) or Glimmer (Ollama)
   agent/Notifier.java            webhook summary
   store/EventLog.java            append-only, in memory + JSONL
   web/EventsController.java      /api/events?since, /api/inventory, /api/status, POST /api/run
@@ -128,8 +132,9 @@ openssl s_client -connect localhost:8443 -servername demo.lab </dev/null | opens
 ./mvnw -q test                     # before every commit (set JAVA_HOME to a JDK 21+)
 ```
 
-Env: `OLLAMA_URL` (default http://localhost:11434), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `MODEL_API_KEY` (Meta Model API,
-turns on the Muse Spark run summary), `MUSE_SPARK_MODEL` (default `muse-spark-1.3`).
+Env: `OLLAMA_URL` (default http://localhost:11434), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `MODEL_API_KEY` (Meta Model API key,
+required for the default `spark` model; or `certagent.spark.api-key` in git-ignored `config/application.yml`),
+`MUSE_SPARK_MODEL` (default `muse-spark-1.3`), `CERTAGENT_MODEL` (`spark` | `glimmer`).
 
 ## 8. Conventions
 
@@ -174,14 +179,14 @@ Three cases on one screen, ~90 seconds:
    install succeeds, reload is refused → automatic rollback, nginx still serves the old cert → **Rolled back**.
    (A bad ACME URL fails before anything is installed, so it shows **Failed safely**, not a rollback.)
 
-Then 40s on architecture + "runs on Glimmer locally, nothing leaves the network," 20s problem framing up
+Then 40s on architecture + "Muse Spark decides; the same agent also runs fully local on open-weight Glimmer," 20s problem framing up
 front. Record the agent run once; narrate over it; never re-run live in the video.
 
 ## 11. Known risks and what to do
 
-- **Glimmer tool-calling flaky** → keep `temperature` low, tool descriptions explicit, retry a malformed call
-  once with the error fed back. If it is hopeless by Nov 2, document a Fireworks-hosted fallback but keep the
-  local run recorded as proof for the Open Weights prize.
+- **Glimmer too slow / tool-calling flaky** → resolved 2026-11-02: Muse Spark is the default model (verify → renew
+  → verify in ~15 s, `SparkLiveTest`). Keep `temperature` low and tool descriptions explicit for both models. The
+  Nov 1 local Glimmer runs stay recorded as proof for the Open Weights prize.
 - **acme4j API mismatch** → the client was written against the 3.x API (`findChallenge` → Optional,
   `order.execute(keyPair)`, `fetch()`). Fix at the call sites; do not swap libraries.
 - **step-ca password path** → `/home/step/secrets/password` per the official image; verify with

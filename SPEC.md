@@ -9,7 +9,7 @@ the as-built record. Where the two differ, the difference is called out in §12.
 ## 1. Summary
 
 CertAgent is a Spring Boot service that checks the TLS certificate served by each configured endpoint,
-works out what is wrong in deterministic code, lets the Muse Glimmer model (via Ollama) decide what to do
+works out what is wrong in deterministic code, lets Muse Spark (Meta Model API; or Muse Glimmer via local Ollama) decide what to do
 through three tools, applies changes only if policy allows, verifies the result strictly, and rolls back
 automatically if the change did not take. Every step is appended to a timeline (`data/events.jsonl`) exposed
 over a REST API.
@@ -166,8 +166,9 @@ Bound into `AgentProperties` (immutable records, validated). Shipped values:
 | `install.reload-command` | `docker compose -f lab/docker-compose.yml exec -T nginx sh -c "nginx -t -q && nginx -s reload"` | run from the working directory; config test first so a rejected config fails the reload |
 | `install.settle-after-reload` | default `3s` | wait before verifying |
 | `notification.webhook-url` | `${NOTIFY_WEBHOOK:}` | named `notification`, not `notify` (§11) |
-| `summary.api-key` | `${MODEL_API_KEY:}` | Meta Model API key; blank = Spark summary off, nothing leaves the machine |
-| `summary.base-url` / `model` / `timeout` | `https://api.meta.ai` / `${MUSE_SPARK_MODEL:muse-spark-1.3}` / `60s` | OpenAI-compatible Chat Completions (`/v1/chat/completions`); at most 2 attempts |
+| `model` | `${CERTAGENT_MODEL:spark}` | `spark` (Muse Spark, Meta Model API) or `glimmer` (local Ollama) |
+| `spark.api-key` | `${MODEL_API_KEY:}` | Meta Model API key, required for `spark`; keep a local one in git-ignored `config/application.yml` |
+| `spark.base-url` / `model` / `reasoning-effort` / `timeout` | `https://api.meta.ai` / `${MUSE_SPARK_MODEL:muse-spark-1.3}` / `low` / `120s` | OpenAI-compatible Chat Completions (`/v1/chat/completions`); at most 2 attempts per call |
 | `schedule.cron` / `run-on-startup` | `0 0 6 * * *` / `true` | |
 | `event-log` | `data/events.jsonl` | |
 
@@ -307,20 +308,32 @@ expiring, expired, untrusted, weak key); reasoning on every call naming the evid
 word (OK/SUCCESS, FAIL/FAILED, DENIED → don't retry, DRY-RUN, ERROR → at most one retry); verify again after a
 change; no invented targets/tools/results; max 5 tool calls per case; finish with 2–3 sentences.
 
-**Run summary — Muse Spark (`agent/SparkSummarizer.java`).** Glimmer handles every case. The run summary is
-written by the first of these that works:
-1. **Muse Spark on Meta Model API**, only when `MODEL_API_KEY` is set. It uses Spring AI's OpenAI client
-   (`spring-ai-openai`, no auto-configuration, so Ollama stays the only auto-configured chat model) against
-   `https://api.meta.ai/v1/chat/completions` with `reasoning_effort: low` (29s → 8s for the same summary). 10s
-   connect timeout, 60s read timeout, at most 2 attempts. Verified live on 2026-11-02 (`SparkSummarizerLiveTest`,
-   runs only when `MODEL_API_KEY` is set).
-   No tools are attached. The prompt holds only `- <target>: <outcome> — <Glimmer's closing note>` lines.
-   An empty answer or a failure appends a run-level ERROR (`summary by … failed: …; using <glimmer>`).
-2. **Glimmer** (local), the same prompt as before.
-3. **Code-written line** (`N target(s) checked: …`), also used when every target is healthy.
+**Model selection (`config/ModelConfig.java`), changed 2026-11-02.** `certagent.model` picks the one model that
+decides, calls tools and writes the run summary:
+- **`spark` (default): Muse Spark on Meta Model API.** Built with Spring AI's OpenAI client (`spring-ai-openai`,
+  without its auto-configuration, so Ollama's auto-configured model and the single-model `ChatClient.Builder`
+  are untouched) against `https://api.meta.ai/v1/chat/completions`. Uses `reasoning_effort: low` (hidden
+  thinking only; the `reasoning` tool argument is still written in full), `temperature: 0.1`, 10s connect /
+  120s read timeout per call, at most 2 attempts. Startup fails with a clear message if no key is set.
+  - Verified live (`SparkLiveTest`, runs only when `MODEL_API_KEY` is set): real system and case prompts with
+    stand-in tools. Spark called `verify_handshake` → `renew_certificate` → `verify_handshake` with a full
+    reasoning sentence on each call, and answered in 3 sentences, in **14.9 s** for the whole case. Glimmer took
+    12–21 min per run on the Nov 1 hardware.
+  - What leaves the machine: case prompts (target, endpoint, certificate details, findings), tool results the
+    model reads, and the summary facts. Never certificate files or private keys.
+- **`glimmer`: Muse Glimmer through local Ollama** (`spring.ai.ollama.*`). Nothing leaves the network.
 
-The DONE event's `summaryBy` records which one wrote it. `/api/status` adds `summaryModel` (who will write
-summaries when everything works), and the timeline shows "summary by …" next to the pinned summary.
+`AgentModel(chatModel, name, hosting)` is passed to the runner; the timeline label is `<name> · <hosting>`
+(`muse-spark-1.3 · Meta Model API` or `muse-glimmer:30b · local`).
+
+**Run summary.** The active model writes it from `- <target>: <outcome> — <model's closing note>` lines, with no
+tools attached. An empty answer or a failure appends a run-level ERROR (`summary by … failed: …; using the
+rule-based line`) and the code-written line (`N target(s) checked: …`) is used; it is also used when every
+target is healthy. The DONE event's `summaryBy` records which one wrote it, and the timeline shows
+"summary by …" next to the pinned summary.
+
+The earlier step on this branch (Spark writing only the summary while Glimmer decided, `SparkSummarizer`) was
+replaced by this.
 
 ### 7.9 Notifier
 If `notification.webhook-url` is set, POSTs `{"text": summary, "runId": …, "counts": {…}}` (Slack-compatible)
@@ -332,7 +345,7 @@ and records NOTIFY; a failure is recorded as ERROR and does not fail the run.
 |---|---|---|
 | GET | `/api/events?since=<seq>` | events with `seq > since` (UI polls with the last seq it has) |
 | GET | `/api/inventory` | `CertRecord[]` from the latest scan |
-| GET | `/api/status` | `{running, lastRunId, model, summaryModel}` |
+| GET | `/api/status` | `{running, lastRunId, model, hosting}` |
 | POST | `/api/run` | `202 {runId}` or `409 {error}` if a run is in progress |
 
 ### 7.11 Timeline UI (`src/main/resources/static/index.html`)
@@ -400,7 +413,7 @@ risk{level: OK|WARN|CRITICAL, reasons[]})`
 | ERROR | various | (message only) |
 | NOTIFY | Notifier | (message only) |
 | DONE | runner (target) | outcome, summary (model's final text) |
-| DONE | runner (run) | summary, summaryBy (`muse-spark-1.3 · Meta Model API`, `<glimmer> · local` or `rule-based`), counts{outcome: n}, outcomes{target: outcome} |
+| DONE | runner (run) | summary, summaryBy (`<model> · <hosting>` or `rule-based`), counts{outcome: n}, outcomes{target: outcome} |
 
 ---
 
@@ -413,7 +426,7 @@ risk{level: OK|WARN|CRITICAL, reasons[]})`
 | 3. Every tool call through PolicyGate | First statement of every tool after target lookup |
 | 4. Backup before change, strict verify after, auto-rollback inside the tool | `CertTools.renew` / `restore` |
 | 5. Every tool has `reasoning`, recorded on the timeline | `@ToolParam reasoning` → POLICY (and VERIFY) details |
-| 6. Nothing leaves the network | Ollama on localhost; ACME to the lab CA; only optional webhook is outbound and user-configured |
+| 6. Nothing leaves the network (except the model call with `spark`) | `ModelConfig`: Spark gets case prompts and tool results only; `glimmer` = Ollama on localhost; ACME to the lab CA; optional webhook |
 
 ---
 
