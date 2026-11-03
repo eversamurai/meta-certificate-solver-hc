@@ -81,7 +81,10 @@ Scanner (code)  ──▶  Inventory + risk findings (deterministic, no model)
 4. Every change is preceded by a backup and followed by a strict `verify()`. Failure ⇒ automatic rollback inside
    the tool, not at the model's discretion.
 5. Every tool has a `reasoning` parameter and records it on the timeline. The model's words are the product.
-6. Nothing leaves the network: no cloud APIs, no telemetry. Ollama on localhost only.
+6. Nothing leaves the network: no cloud APIs, no telemetry. Ollama on localhost only. One exception (owner's
+   decision, 2026-11-02): when `MODEL_API_KEY` is set, the **run summary** is written by Muse Spark on Meta Model
+   API, and only the per-target outcomes and Glimmer's closing notes are sent. Every decision and tool call stays
+   on local Glimmer, and any API failure falls back to Glimmer.
 
 ## 6. Stack and layout
 
@@ -100,6 +103,7 @@ src/main/java/dev/certagent/
   policy/PolicyGate.java         decide(tool, target, reasoning) → ALLOW | DRY_RUN | DENY (+ POLICY event)
   tools/CertTools.java           the three @Tool methods
   agent/CertAgentRunner.java     the cycle: scan → diagnose → model → notify; cron + startup + /api/run
+  agent/SparkSummarizer.java     run summary by Muse Spark on Meta Model API (only when MODEL_API_KEY is set)
   agent/Notifier.java            webhook summary
   store/EventLog.java            append-only, in memory + JSONL
   web/EventsController.java      /api/events?since, /api/inventory, /api/status, POST /api/run
@@ -124,7 +128,8 @@ openssl s_client -connect localhost:8443 -servername demo.lab </dev/null | opens
 ./mvnw -q test                     # before every commit (set JAVA_HOME to a JDK 21+)
 ```
 
-Env: `OLLAMA_URL` (default http://localhost:11434), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`.
+Env: `OLLAMA_URL` (default http://localhost:11434), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `MODEL_API_KEY` (Meta Model API,
+turns on the Muse Spark run summary), `MUSE_SPARK_MODEL` (default `muse-spark-1.3`).
 
 ## 8. Conventions
 

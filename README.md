@@ -97,6 +97,28 @@ Rules the code enforces:
 Every decision in the demo is made by **Muse Glimmer running on one local machine**. There is no cloud API and no
 telemetry. Ollama listens on localhost, ACME goes to the lab's own CA, and the endpoints are inside the docker lab.
 
+### Optional: run summaries by Muse Spark
+
+Glimmer is distilled from **Muse Spark**. If you set `MODEL_API_KEY`, Muse Spark on
+[Meta Model API](https://dev.meta.ai/docs/overview) writes the 3-sentence summary pinned at the top of the timeline
+and sent to the webhook. The split is fixed:
+
+| | Muse Glimmer (local) | Muse Spark (Meta Model API) |
+|---|---|---|
+| Decides what to do and calls the tools | yes, every case | never |
+| Writes the run summary | only without a key, or if Spark fails | yes, when `MODEL_API_KEY` is set |
+| Leaves the machine | nothing | per-target outcomes and Glimmer's closing notes. No tool calls, certificates or keys |
+
+```bash
+export MODEL_API_KEY=...                  # never commit it
+export MUSE_SPARK_MODEL=muse-spark-1.3    # optional, this is the default
+./mvnw spring-boot:run
+```
+
+The timeline shows who wrote each summary ("summary by muse-spark-1.3 · Meta Model API"). If the API call fails,
+the failure is recorded on the timeline and Glimmer writes the summary instead, so a run never depends on the API.
+Without the key, nothing at all leaves the machine.
+
 | | |
 |---|---|
 | Model | `muse-glimmer:30b`: 27.9B parameters, Q4_K_M quantisation, open weights |
@@ -161,7 +183,8 @@ account.
 Everything lives in [`src/main/resources/application.yml`](src/main/resources/application.yml) under
 `certagent.*`: targets, policy per environment and tool, risk thresholds, ACME directory, extra trusted roots,
 the reload command, the webhook and the schedule. Environment variables: `OLLAMA_URL` (default
-`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`.
+`http://localhost:11434`), `OLLAMA_MODEL`, `NOTIFY_WEBHOOK`, `MODEL_API_KEY` and `MUSE_SPARK_MODEL` (run summaries by
+Muse Spark, see above).
 
 Example policy:
 ```yaml
@@ -180,7 +203,7 @@ A tool or environment that isn't listed is denied.
 |---|---|
 | `GET /api/events?since=<seq>` | timeline events after `seq` |
 | `GET /api/inventory` | latest scan results |
-| `GET /api/status` | `{running, lastRunId, model}` |
+| `GET /api/status` | `{running, lastRunId, model, summaryModel}` |
 | `POST /api/run` | start a cycle (`202`), or `409` if one is running |
 
 ### Tests

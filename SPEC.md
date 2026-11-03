@@ -166,6 +166,8 @@ Bound into `AgentProperties` (immutable records, validated). Shipped values:
 | `install.reload-command` | `docker compose -f lab/docker-compose.yml exec -T nginx sh -c "nginx -t -q && nginx -s reload"` | run from the working directory; config test first so a rejected config fails the reload |
 | `install.settle-after-reload` | default `3s` | wait before verifying |
 | `notification.webhook-url` | `${NOTIFY_WEBHOOK:}` | named `notification`, not `notify` (§11) |
+| `summary.api-key` | `${MODEL_API_KEY:}` | Meta Model API key; blank = Spark summary off, nothing leaves the machine |
+| `summary.base-url` / `model` / `timeout` | `https://api.meta.ai` / `${MUSE_SPARK_MODEL:muse-spark-1.3}` / `60s` | OpenAI-compatible Chat Completions (`/v1/chat/completions`); at most 2 attempts |
 | `schedule.cron` / `run-on-startup` | `0 0 6 * * *` / `true` | |
 | `event-log` | `data/events.jsonl` | |
 
@@ -305,6 +307,19 @@ expiring, expired, untrusted, weak key); reasoning on every call naming the evid
 word (OK/SUCCESS, FAIL/FAILED, DENIED → don't retry, DRY-RUN, ERROR → at most one retry); verify again after a
 change; no invented targets/tools/results; max 5 tool calls per case; finish with 2–3 sentences.
 
+**Run summary — Muse Spark (`agent/SparkSummarizer.java`).** Glimmer handles every case. The run summary is
+written by the first of these that works:
+1. **Muse Spark on Meta Model API**, only when `MODEL_API_KEY` is set. It uses Spring AI's OpenAI client
+   (`spring-ai-openai`, no auto-configuration, so Ollama stays the only auto-configured chat model) against
+   `https://api.meta.ai/v1/chat/completions`. 10s connect timeout, 60s read timeout, at most 2 attempts.
+   No tools are attached. The prompt holds only `- <target>: <outcome> — <Glimmer's closing note>` lines.
+   An empty answer or a failure appends a run-level ERROR (`summary by … failed: …; using <glimmer>`).
+2. **Glimmer** (local), the same prompt as before.
+3. **Code-written line** (`N target(s) checked: …`), also used when every target is healthy.
+
+The DONE event's `summaryBy` records which one wrote it. `/api/status` adds `summaryModel` (who will write
+summaries when everything works), and the timeline shows "summary by …" next to the pinned summary.
+
 ### 7.9 Notifier
 If `notification.webhook-url` is set, POSTs `{"text": summary, "runId": …, "counts": {…}}` (Slack-compatible)
 and records NOTIFY; a failure is recorded as ERROR and does not fail the run.
@@ -315,7 +330,7 @@ and records NOTIFY; a failure is recorded as ERROR and does not fail the run.
 |---|---|---|
 | GET | `/api/events?since=<seq>` | events with `seq > since` (UI polls with the last seq it has) |
 | GET | `/api/inventory` | `CertRecord[]` from the latest scan |
-| GET | `/api/status` | `{running, lastRunId, model}` |
+| GET | `/api/status` | `{running, lastRunId, model, summaryModel}` |
 | POST | `/api/run` | `202 {runId}` or `409 {error}` if a run is in progress |
 
 ### 7.11 Timeline UI (`src/main/resources/static/index.html`)
@@ -383,7 +398,7 @@ risk{level: OK|WARN|CRITICAL, reasons[]})`
 | ERROR | various | (message only) |
 | NOTIFY | Notifier | (message only) |
 | DONE | runner (target) | outcome, summary (model's final text) |
-| DONE | runner (run) | summary, counts{outcome: n}, outcomes{target: outcome} |
+| DONE | runner (run) | summary, summaryBy (`muse-spark-1.3 · Meta Model API`, `<glimmer> · local` or `rule-based`), counts{outcome: n}, outcomes{target: outcome} |
 
 ---
 
