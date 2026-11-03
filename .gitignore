@@ -24,3 +24,6 @@ Thumbs.db
 
 # Local preview config (machine-specific paths)
 .claude/launch.json
+
+# Local secrets (e.g. the Meta Model API key). Spring Boot reads ./config/application.yml automatically.
+config/
