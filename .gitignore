@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local secrets (e.g. the Meta Model API key). Spring Boot reads ./config/application.yml automatically.
 /config/
+
+# Agent instructions stay on this machine.
+/CLAUDE*.md

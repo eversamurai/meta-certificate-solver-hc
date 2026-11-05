@@ -240,4 +240,3 @@ and the Windows certificate store.
 ## More
 
 - [SPEC.md](SPEC.md): the as-built specification, covering every component, event, config key and test.
-- [CLAUDE.md](CLAUDE.md): the project's rules and scope, written for coding agents working in this repo.
