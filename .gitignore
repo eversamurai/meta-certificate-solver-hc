@@ -24,3 +24,6 @@ Thumbs.db
 
 # Local preview config (machine-specific paths)
 .claude/launch.json
+
+# Agent instructions stay on this machine.
+/CLAUDE*.md
